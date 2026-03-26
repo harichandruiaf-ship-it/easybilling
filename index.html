@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#1a5f4a" />
+  <meta name="description" content="Easy Billing — GST invoices" />
+  <title>Easy Billing</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/app.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js"
+    }
+  }
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+  <header class="app-header">
+    <a href="#/dashboard" class="logo">Easy Billing</a>
+    <nav class="nav-auth hidden" id="nav-main" aria-label="Main">
+      <a href="#/dashboard">Home</a>
+      <a href="#/create">New invoice</a>
+      <a href="#/customers">Customers</a>
+      <a href="#/history">History</a>
+      <a href="#/settings">Settings</a>
+      <button type="button" class="btn btn-ghost" id="btn-logout">Sign out</button>
+    </nav>
+  </header>
+
+  <main id="app-main">
+    <p class="loading-msg" id="boot-loading">Loading…</p>
+
+    <!-- Login -->
+    <section id="view-login" class="view container" hidden>
+      <h1>Sign in</h1>
+      <form id="form-auth" class="card form-block" novalidate>
+        <label>
+          Email
+          <input type="email" id="auth-email" autocomplete="email" required />
+        </label>
+        <label>
+          Password
+          <input type="password" id="auth-password" autocomplete="current-password" required minlength="6" />
+        </label>
+        <p class="form-error" id="auth-error" role="alert"></p>
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary" id="btn-auth-submit">Sign in</button>
+          <button type="button" class="btn btn-secondary" id="btn-auth-toggle">Create account</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="view-dashboard" class="view container" hidden>
+      <h1>Dashboard</h1>
+      <p class="muted">Create and manage GST invoices. Seller details are saved in Settings.</p>
+      <div class="btn-row wrap">
+        <a class="btn btn-primary" href="#/create">Create invoice</a>
+        <a class="btn btn-secondary" href="#/customers">Customers</a>
+        <a class="btn btn-secondary" href="#/history">Invoice history</a>
+        <a class="btn btn-secondary" href="#/settings">Seller settings</a>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view container" hidden>
+      <h1>Seller settings</h1>
+      <p class="muted">These appear on every invoice.</p>
+      <form id="form-settings" class="card form-block" novalidate>
+        <label>
+          Business / seller name
+          <input type="text" id="set-name" required maxlength="200" />
+        </label>
+        <label>
+          Subtitle / account period (optional)
+          <input type="text" id="set-subtitle" maxlength="120" placeholder="e.g. A/c 2025-2026" />
+        </label>
+        <label>
+          Address
+          <textarea id="set-address" rows="3" required maxlength="1000"></textarea>
+        </label>
+        <label>
+          Phone
+          <input type="tel" id="set-phone" required maxlength="20" />
+        </label>
+        <label>
+          GSTIN
+          <input type="text" id="set-gstin" maxlength="15" placeholder="Optional" />
+        </label>
+        <label>
+          Email
+          <input type="email" id="set-email" maxlength="120" placeholder="Optional" />
+        </label>
+        <label>
+          State name
+          <input type="text" id="set-state-name" maxlength="80" placeholder="e.g. Tamil Nadu" />
+        </label>
+        <label>
+          State code
+          <input type="text" id="set-state-code" maxlength="5" placeholder="e.g. 33" />
+        </label>
+        <div class="inline-two">
+          <label>
+            PAN (optional)
+            <input type="text" id="set-pan" maxlength="10" placeholder="e.g. AAAAA0000A" />
+          </label>
+          <label>
+            UDYAM Reg No. (optional)
+            <input type="text" id="set-udyam" maxlength="30" />
+          </label>
+        </div>
+        <label>
+          Contact (additional) (optional)
+          <input type="text" id="set-contact-extra" maxlength="80" placeholder="Extra phone / contact" />
+        </label>
+        <h2 class="h2-small">GST rates (on taxable value)</h2>
+        <p class="muted small">Used on every new invoice. CGST + SGST (intra-state).</p>
+        <div class="inline-two">
+          <label>
+            CGST %
+            <input type="number" id="set-cgst-pct" min="0" max="100" step="0.01" value="2.5" />
+          </label>
+          <label>
+            SGST %
+            <input type="number" id="set-sgst-pct" min="0" max="100" step="0.01" value="2.5" />
+          </label>
+        </div>
+        <h2 class="h2-small">Bank details</h2>
+        <label>
+          Account holder name
+          <input type="text" id="set-acc-holder" maxlength="120" />
+        </label>
+        <label>
+          Bank name
+          <input type="text" id="set-bank-name" maxlength="100" />
+        </label>
+        <label>
+          Branch
+          <input type="text" id="set-bank-branch" maxlength="120" />
+        </label>
+        <label>
+          Account number
+          <input type="text" id="set-bank-account" maxlength="30" />
+        </label>
+        <label>
+          IFSC
+          <input type="text" id="set-bank-ifsc" maxlength="20" />
+        </label>
+        <label>
+          Jurisdiction line (optional, footer)
+          <input type="text" id="set-jurisdiction" maxlength="200" placeholder="e.g. Subject to Salem Jurisdiction" />
+        </label>
+        <h2 class="h2-small">Terms &amp; conditions (printed on invoice)</h2>
+        <label>
+          <textarea id="set-terms" rows="5" maxlength="4000" placeholder="Optional — appears at bottom of PDF"></textarea>
+        </label>
+        <p class="form-error" id="settings-error" role="alert"></p>
+        <p class="form-success" id="settings-success" role="status"></p>
+        <button type="submit" class="btn btn-primary">Save settings</button>
+      </form>
+    </section>
+
+    <!-- Create invoice -->
+    <section id="view-create" class="view container container-wide" hidden>
+      <h1>Create invoice</h1>
+      <form id="form-invoice" class="card form-block" novalidate>
+        <h2 class="h2-small">Customer</h2>
+        <label>
+          Load saved customer
+          <select id="inv-customer-select">
+            <option value="">— New customer (enter details below) —</option>
+          </select>
+        </label>
+        <p class="muted small">Invoice number and date are set when you save.</p>
+
+        <h2 class="h2-small">Buyer (Bill to)</h2>
+        <label>
+          Name
+          <input type="text" id="inv-buyer-name" required maxlength="200" />
+        </label>
+        <label>
+          Address
+          <textarea id="inv-buyer-address" rows="2" required maxlength="1000"></textarea>
+        </label>
+        <label>
+          Phone
+          <input type="tel" id="inv-buyer-phone" required maxlength="20" />
+        </label>
+        <div class="inline-two">
+          <label>
+            State
+            <input type="text" id="inv-buyer-state" maxlength="80" placeholder="e.g. Tamil Nadu" />
+          </label>
+          <label>
+            State code
+            <input type="text" id="inv-buyer-state-code" maxlength="5" placeholder="e.g. 33" />
+          </label>
+        </div>
+        <label>
+          GSTIN (optional)
+          <input type="text" id="inv-buyer-gstin" maxlength="15" />
+        </label>
+        <div class="inline-two">
+          <label>
+            PAN / IT No. (optional)
+            <input type="text" id="inv-buyer-pan" maxlength="10" />
+          </label>
+          <label>
+            Place of supply (optional)
+            <input type="text" id="inv-place-of-supply" maxlength="120" />
+          </label>
+        </div>
+        <label>
+          Contact (optional)
+          <input type="text" id="inv-buyer-contact" maxlength="80" placeholder="Alternate contact no." />
+        </label>
+
+        <h2 class="h2-small">Consignee (Ship to)</h2>
+        <label class="check-row">
+          <input type="checkbox" id="inv-consignee-same" checked />
+          Same as buyer (name &amp; address)
+        </label>
+        <div id="inv-consignee-extra" class="hidden">
+          <label>
+            Consignee name
+            <input type="text" id="inv-consignee-name" maxlength="200" />
+          </label>
+          <label>
+            Consignee address
+            <textarea id="inv-consignee-address" rows="2" maxlength="1000"></textarea>
+          </label>
+          <div class="inline-two">
+            <label>
+              State
+              <input type="text" id="inv-consignee-state" maxlength="80" />
+            </label>
+            <label>
+              State code
+              <input type="text" id="inv-consignee-state-code" maxlength="5" />
+            </label>
+          </div>
+          <label>
+            Consignee GSTIN (optional)
+            <input type="text" id="inv-consignee-gstin" maxlength="15" />
+          </label>
+        </div>
+
+        <h2 class="h2-small">Invoice &amp; dispatch (optional)</h2>
+        <p class="muted small">Shown in the top-right box on the printed invoice.</p>
+        <div class="inline-two">
+          <label>
+            Delivery Note
+            <input type="text" id="inv-delivery-note" maxlength="80" />
+          </label>
+          <label>
+            Mode / terms of payment
+            <input type="text" id="inv-payment-terms" maxlength="120" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            Reference No.
+            <input type="text" id="inv-ref-no" maxlength="80" />
+          </label>
+          <label>
+            Reference date
+            <input type="text" id="inv-ref-date" maxlength="40" placeholder="dd/mm/yyyy" />
+          </label>
+        </div>
+        <label>
+          Other references
+          <input type="text" id="inv-other-refs" maxlength="200" />
+        </label>
+        <div class="inline-two">
+          <label>
+            Buyer&apos;s order No.
+            <input type="text" id="inv-buyer-order-no" maxlength="80" />
+          </label>
+          <label>
+            Order dated
+            <input type="text" id="inv-buyer-order-date" maxlength="40" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            Dispatch Doc No.
+            <input type="text" id="inv-dispatch-doc" maxlength="80" />
+          </label>
+          <label>
+            Delivery Note Date
+            <input type="text" id="inv-delivery-note-date" maxlength="40" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            Dispatched through
+            <input type="text" id="inv-dispatch-through" maxlength="120" />
+          </label>
+          <label>
+            Destination
+            <input type="text" id="inv-destination" maxlength="120" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            Bill of Lading / LR-RR No.
+            <input type="text" id="inv-bol" maxlength="80" />
+          </label>
+          <label>
+            Motor Vehicle No.
+            <input type="text" id="inv-vehicle-no" maxlength="40" />
+          </label>
+        </div>
+        <label>
+          Terms of delivery
+          <input type="text" id="inv-terms-delivery" maxlength="200" />
+        </label>
+        <div class="inline-two">
+          <label>
+            Vessel / Flight No.
+            <input type="text" id="inv-vessel-flight" maxlength="80" />
+          </label>
+          <label>
+            Place of receipt by shipper
+            <input type="text" id="inv-place-receipt" maxlength="120" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            City / Port of loading
+            <input type="text" id="inv-port-loading" maxlength="120" />
+          </label>
+          <label>
+            City / Port of discharge
+            <input type="text" id="inv-port-discharge" maxlength="120" />
+          </label>
+        </div>
+        <div class="inline-two">
+          <label>
+            Previous balance (₹)
+            <input type="number" id="inv-prev-balance" min="0" step="0.01" placeholder="0" />
+          </label>
+          <label>
+            Current balance (₹)
+            <input type="number" id="inv-curr-balance" min="0" step="0.01" placeholder="0" />
+          </label>
+        </div>
+
+        <h2 class="h2-small">e-Invoice (optional)</h2>
+        <p class="muted small">After generating IRN on the GST portal, paste details here. QR: paste a hosted image URL or a data URL.</p>
+        <label>
+          IRN (Invoice Reference Number)
+          <textarea id="inv-einv-irn" rows="2" maxlength="1000" placeholder="Long alphanumeric IRN"></textarea>
+        </label>
+        <div class="inline-two">
+          <label>
+            Ack No.
+            <input type="text" id="inv-einv-ack-no" maxlength="40" />
+          </label>
+          <label>
+            Ack Date
+            <input type="text" id="inv-einv-ack-date" maxlength="40" placeholder="dd/mm/yyyy" />
+          </label>
+        </div>
+        <label>
+          QR code image URL (optional)
+          <input type="text" id="inv-einv-qr-url" maxlength="2000" placeholder="https://… or data:image/png;base64,…" />
+        </label>
+
+        <h2 class="h2-small">Other</h2>
+        <label>
+          e-Way Bill No. (optional)
+          <input type="text" id="inv-eway" maxlength="30" />
+        </label>
+
+        <div class="check-row-group">
+          <label class="check-row" id="lbl-save-new">
+            <input type="checkbox" id="inv-save-new-customer" checked />
+            Save as new customer (when not loading from list)
+          </label>
+          <label class="check-row hidden" id="lbl-update-customer">
+            <input type="checkbox" id="inv-update-customer" />
+            Update saved customer with edited details
+          </label>
+        </div>
+
+        <h2 class="h2-small">Items</h2>
+        <div class="table-wrap">
+          <table class="items-table" id="items-table">
+            <thead>
+              <tr>
+                <th>Item name</th>
+                <th>HSN/SAC</th>
+                <th>Qty</th>
+                <th>Per</th>
+                <th>Rate</th>
+                <th>Amount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="items-tbody"></tbody>
+          </table>
+        </div>
+        <button type="button" class="btn btn-secondary" id="btn-add-item">Add item</button>
+
+        <div class="totals-box" id="totals-preview">
+          <div class="totals-row"><span>Taxable value (subtotal)</span><span id="tot-sub">0.00</span></div>
+          <div class="totals-row"><span id="tot-cgst-label">CGST</span><span id="tot-cgst">0.00</span></div>
+          <div class="totals-row"><span id="tot-sgst-label">SGST</span><span id="tot-sgst">0.00</span></div>
+          <div class="totals-row strong"><span>Total</span><span id="tot-total">0.00</span></div>
+        </div>
+
+        <p class="form-error" id="invoice-form-error" role="alert"></p>
+        <div class="btn-row wrap">
+          <button type="submit" class="btn btn-primary" id="btn-save-invoice">Save invoice</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Customers -->
+    <section id="view-customers" class="view container" hidden>
+      <h1>Customers</h1>
+      <p class="muted">Saved buyers — select them when creating an invoice.</p>
+      <p class="muted" id="customers-empty">No customers yet. Create an invoice and save a new buyer.</p>
+      <ul class="invoice-list" id="customers-list"></ul>
+    </section>
+
+    <!-- History -->
+    <section id="view-history" class="view container" hidden>
+      <h1>Invoice history</h1>
+      <p class="muted" id="history-empty">No invoices yet.</p>
+      <ul class="invoice-list" id="history-list"></ul>
+    </section>
+
+    <!-- Invoice view / print -->
+    <section id="view-invoice" class="view container" hidden>
+      <div class="invoice-actions btn-row wrap no-print">
+        <a href="#/history" class="btn btn-secondary">Back</a>
+        <button type="button" class="btn btn-primary" id="btn-download-pdf">Download PDF</button>
+        <button type="button" class="btn btn-secondary" id="btn-print">Print</button>
+      </div>
+      <div id="invoice-print-root" class="invoice-print-outer"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer muted small">
+    Easy Billing — GST invoice helper
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
