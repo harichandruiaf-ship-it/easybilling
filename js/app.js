@@ -44,6 +44,313 @@ const views = {
   invoice: document.getElementById("view-invoice"),
 };
 
+/** Full invoice rows for history filtering (cleared when leaving / reload). */
+let historyCache = null;
+let historyFiltersWired = false;
+let historyFilterDebounce = null;
+
+function rowInvoiceDate(row) {
+  const v = row.date;
+  if (!v) return null;
+  if (typeof v.toDate === "function") return v.toDate();
+  if (v instanceof Date) return v;
+  return null;
+}
+
+function startOfLocalDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfLocalDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+function parseLocalYmd(s) {
+  if (!s || typeof s !== "string") return null;
+  const p = s.split("-").map(Number);
+  if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return null;
+  return new Date(p[0], p[1] - 1, p[2]);
+}
+
+function historyDateRange(criteria) {
+  const preset = criteria.preset || "all";
+  const now = new Date();
+  const endToday = endOfLocalDay(now);
+  if (preset === "all") return null;
+  if (preset === "custom") {
+    const a = parseLocalYmd(criteria.dateFrom);
+    const b = parseLocalYmd(criteria.dateTo);
+    if (!a || !b) return null;
+    return { start: startOfLocalDay(a), end: endOfLocalDay(b) };
+  }
+  if (preset === "today") return { start: startOfLocalDay(now), end: endToday };
+  if (preset === "7d") {
+    const s = new Date(now);
+    s.setDate(s.getDate() - 7);
+    return { start: startOfLocalDay(s), end: endToday };
+  }
+  if (preset === "30d") {
+    const s = new Date(now);
+    s.setDate(s.getDate() - 30);
+    return { start: startOfLocalDay(s), end: endToday };
+  }
+  if (preset === "90d") {
+    const s = new Date(now);
+    s.setDate(s.getDate() - 90);
+    return { start: startOfLocalDay(s), end: endToday };
+  }
+  if (preset === "month") {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start: startOfLocalDay(s), end: endToday };
+  }
+  return null;
+}
+
+function normLower(s) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function normTaxId(s) {
+  return String(s ?? "")
+    .replace(/\s/g, "")
+    .toUpperCase();
+}
+
+function includesLoose(hay, needle) {
+  if (!needle) return true;
+  return normLower(hay).includes(normLower(needle));
+}
+
+function includesTaxId(hay, needle) {
+  if (!needle) return true;
+  return normTaxId(hay).includes(normTaxId(needle));
+}
+
+function filterHistoryRows(rows, c) {
+  const range = historyDateRange(c);
+  return rows.filter((row) => {
+    const d = rowInvoiceDate(row);
+    if (range) {
+      if (!d) return false;
+      if (d.getTime() < range.start.getTime() || d.getTime() > range.end.getTime()) return false;
+    }
+    const customerBlob = [row.customerName, row.consigneeName].filter(Boolean).join(" ");
+    if (c.customer) {
+      const target = normLower(c.customer);
+      const buyer = normLower(row.customerName);
+      const consignee = normLower(row.consigneeName);
+      if (buyer !== target && consignee !== target) return false;
+    }
+    const min = c.amountMin;
+    const max = c.amountMax;
+    if (min !== "" && min != null && Number.isFinite(Number(min)) && row.total < Number(min)) return false;
+    if (max !== "" && max != null && Number.isFinite(Number(max)) && row.total > Number(max)) return false;
+    if (c.mode === "advanced") {
+      if (!includesLoose(row.invoiceNumber, c.invoiceNo)) return false;
+      if (!includesTaxId(row.buyerGstin, c.buyerGstin)) return false;
+      if (!includesTaxId(row.buyerPan, c.buyerPan)) return false;
+      if (!includesTaxId(row.sellerGstin, c.sellerGstin)) return false;
+      if (!includesTaxId(row.sellerPan, c.sellerPan)) return false;
+      if (!includesLoose(row.placeOfSupply, c.place)) return false;
+      const locBlob = [row.buyerAddress, row.destination].join(" ");
+      if (!includesLoose(locBlob, c.location)) return false;
+      const transportBlob = [row.dispatchedThrough, row.motorVehicleNo, row.ewayBillNo, row.billOfLadingNo].join(" ");
+      if (!includesLoose(transportBlob, c.transport)) return false;
+      if (!includesLoose(row.referenceNo, c.reference)) return false;
+      if (!includesLoose(row.hsnSearchBlob, c.hsn)) return false;
+      if (!includesLoose(row.deliveryNote, c.deliveryNote)) return false;
+    }
+    return true;
+  });
+}
+
+function readHistoryCriteria() {
+  const v = (id) => document.getElementById(id)?.value?.trim() ?? "";
+  return {
+    mode: document.getElementById("hist-filter-mode")?.value || "normal",
+    preset: document.getElementById("hist-date-preset")?.value || "all",
+    dateFrom: document.getElementById("hist-date-from")?.value || "",
+    dateTo: document.getElementById("hist-date-to")?.value || "",
+    invoiceNo: v("hist-invoice-no"),
+    customer: document.getElementById("hist-customer")?.value || "",
+    buyerGstin: v("hist-buyer-gstin"),
+    buyerPan: v("hist-buyer-pan"),
+    sellerGstin: v("hist-seller-gstin"),
+    sellerPan: v("hist-seller-pan"),
+    place: v("hist-place"),
+    location: v("hist-location"),
+    transport: v("hist-transport"),
+    reference: v("hist-reference"),
+    hsn: v("hist-hsn"),
+    deliveryNote: v("hist-delivery-note"),
+    amountMin: document.getElementById("hist-amount-min")?.value ?? "",
+    amountMax: document.getElementById("hist-amount-max")?.value ?? "",
+  };
+}
+
+function clearHistoryFiltersForm() {
+  const mode = document.getElementById("hist-filter-mode");
+  if (mode) mode.value = "normal";
+  const preset = document.getElementById("hist-date-preset");
+  if (preset) preset.value = "all";
+  const ids = [
+    "hist-date-from",
+    "hist-date-to",
+    "hist-invoice-no",
+    "hist-customer",
+    "hist-buyer-gstin",
+    "hist-buyer-pan",
+    "hist-seller-gstin",
+    "hist-seller-pan",
+    "hist-place",
+    "hist-location",
+    "hist-transport",
+    "hist-reference",
+    "hist-hsn",
+    "hist-delivery-note",
+    "hist-amount-min",
+    "hist-amount-max",
+  ];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  const customer = document.getElementById("hist-customer");
+  if (customer) customer.value = "";
+  toggleHistoryAdvancedVisibility();
+  toggleHistoryCustomDateVisibility();
+}
+
+function toggleHistoryCustomDateVisibility() {
+  const preset = document.getElementById("hist-date-preset")?.value;
+  const show = preset === "custom";
+  document.getElementById("hist-date-from-wrap")?.classList.toggle("hidden", !show);
+  document.getElementById("hist-date-to-wrap")?.classList.toggle("hidden", !show);
+}
+
+function toggleHistoryAdvancedVisibility() {
+  const mode = document.getElementById("hist-filter-mode")?.value || "normal";
+  const adv = document.getElementById("history-advanced-fields");
+  adv?.classList.toggle("hidden", mode !== "advanced");
+}
+
+function populateHistoryCustomerOptions(customers = [], rows = []) {
+  const sel = document.getElementById("hist-customer");
+  if (!sel) return;
+  const names = new Set();
+  customers.forEach((c) => {
+    const n = String(c?.name || "").trim();
+    if (n) names.add(n);
+  });
+  rows.forEach((r) => {
+    const a = String(r.customerName || "").trim();
+    const b = String(r.consigneeName || "").trim();
+    if (a) names.add(a);
+    if (b) names.add(b);
+  });
+  const sorted = Array.from(names).sort((a, b) => a.localeCompare(b, "en-IN"));
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">All customers</option>${sorted
+    .map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)
+    .join("")}`;
+  if (prev && sorted.includes(prev)) sel.value = prev;
+}
+
+function scheduleHistoryFilterApply() {
+  if (!historyCache) return;
+  clearTimeout(historyFilterDebounce);
+  historyFilterDebounce = setTimeout(() => {
+    historyFilterDebounce = null;
+    applyHistoryFilters();
+  }, 280);
+}
+
+function applyHistoryFiltersNow() {
+  if (!historyCache) return;
+  clearTimeout(historyFilterDebounce);
+  historyFilterDebounce = null;
+  applyHistoryFilters();
+}
+
+function wireHistoryFilters() {
+  if (historyFiltersWired) return;
+  historyFiltersWired = true;
+  const form = document.getElementById("form-history-filters");
+  const btnClear = document.getElementById("btn-history-clear");
+
+  form?.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t?.id === "hist-date-preset") toggleHistoryCustomDateVisibility();
+    if (t?.id === "hist-filter-mode") toggleHistoryAdvancedVisibility();
+    applyHistoryFiltersNow();
+  });
+
+  form?.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t || !form.contains(t)) return;
+    if (t.id === "hist-date-preset" || t.id === "hist-filter-mode") return;
+    scheduleHistoryFilterApply();
+  });
+
+  form?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    applyHistoryFiltersNow();
+  });
+  btnClear?.addEventListener("click", () => {
+    clearHistoryFiltersForm();
+    applyHistoryFiltersNow();
+  });
+  toggleHistoryAdvancedVisibility();
+  toggleHistoryCustomDateVisibility();
+}
+
+function renderHistoryListRows(rows) {
+  const listEl = document.getElementById("history-list");
+  const emptyEl = document.getElementById("history-empty");
+  const countEl = document.getElementById("history-count");
+  listEl.innerHTML = "";
+  const total = historyCache?.length ?? 0;
+  if (!rows.length) {
+    emptyEl.hidden = false;
+    emptyEl.textContent = total ? "No invoices match your filters." : "No invoices yet.";
+    if (countEl) {
+      countEl.hidden = true;
+      countEl.textContent = "";
+    }
+    return;
+  }
+  emptyEl.hidden = true;
+  if (countEl) {
+    countEl.hidden = false;
+    if (rows.length === total) {
+      countEl.textContent = `${total} invoice${total === 1 ? "" : "s"}`;
+    } else {
+      countEl.textContent = `${rows.length} of ${total} invoice${total === 1 ? "" : "s"} match filters`;
+    }
+  }
+  for (const row of rows) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = `#/invoice/${row.id}`;
+    const dateStr = formatInvoiceDate(row.date);
+    a.innerHTML = `<strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}<div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${Number(row.total).toFixed(2)}</span></div>`;
+    li.appendChild(a);
+    listEl.appendChild(li);
+  }
+}
+
+function applyHistoryFilters() {
+  if (!historyCache) return;
+  const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
+  renderHistoryListRows(filtered);
+}
+
 let currentUser = null;
 let authModeSignIn = true;
 let invoiceFormApi = null;
@@ -719,12 +1026,22 @@ async function renderCustomersPage() {
 async function renderHistory() {
   const listEl = document.getElementById("history-list");
   const emptyEl = document.getElementById("history-empty");
+  const countEl = document.getElementById("history-count");
   listEl.innerHTML = "";
+  historyCache = null;
+  if (countEl) {
+    countEl.hidden = true;
+    countEl.textContent = "";
+  }
   if (!currentUser) return;
 
   let rows;
+  let customers = [];
   try {
-    rows = await listInvoicesForUser(db, currentUser.uid);
+    [rows, customers] = await Promise.all([
+      listInvoicesForUser(db, currentUser.uid),
+      listCustomers(db, currentUser.uid).catch(() => []),
+    ]);
   } catch (ex) {
     emptyEl.hidden = false;
     emptyEl.textContent =
@@ -732,21 +1049,11 @@ async function renderHistory() {
       "Could not load history. If the console mentions an index, open the link to create it in Firebase.";
     return;
   }
+  historyCache = rows;
+  wireHistoryFilters();
+  populateHistoryCustomerOptions(customers, rows);
   emptyEl.textContent = "No invoices yet.";
-  if (!rows.length) {
-    emptyEl.hidden = false;
-    return;
-  }
-  emptyEl.hidden = true;
-  for (const row of rows) {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = `#/invoice/${row.id}`;
-    const dateStr = formatInvoiceDate(row.date);
-    a.innerHTML = `<strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}<div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${Number(row.total).toFixed(2)}</span></div>`;
-    li.appendChild(a);
-    listEl.appendChild(li);
-  }
+  applyHistoryFilters();
 }
 
 function escapeHtml(s) {
@@ -839,6 +1146,7 @@ onUserChanged((user) => {
   if (bootEl) bootEl.classList.add("hidden");
 
   if (!user) {
+    historyCache = null;
     window.location.hash = "#/login";
   }
   route();

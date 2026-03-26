@@ -684,6 +684,63 @@ h1 {
   margin-top: 0.25rem;
 }
 
+/* Invoice history filters */
+.history-filters {
+  margin: 1rem 0 1.25rem;
+  padding: 1rem 1.15rem 1.1rem;
+}
+
+.history-filters-heading {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.history-filters-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.history-filter-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  min-width: 11rem;
+}
+
+.history-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.history-filter-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.history-filter-grid input,
+.history-filter-grid select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.history-filter-actions {
+  margin-top: 0.9rem;
+}
+
+#history-count {
+  margin: 0.15rem 0 0.65rem;
+}
+
 /* Invoice view: never stretch to fill the viewport (prevents huge blank band + PDF clipping) */
 #view-invoice {
   height: auto;
@@ -703,7 +760,9 @@ h1 {
   padding: 0.75rem 0.85rem 1rem;
   max-width: 210mm;
   margin: 0 auto;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
 }
 
 .invoice-doc {
@@ -718,7 +777,7 @@ h1 {
 .gst-invoice .inv-top-title {
   text-align: center;
   margin: 0 0 0.35rem;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid #000;
   padding-bottom: 0.25rem;
 }
 
@@ -742,7 +801,7 @@ h1 {
   gap: 0.5rem;
   margin-bottom: 0.35rem;
   padding-bottom: 0.3rem;
-  border-bottom: 1px solid #ccc;
+  border-bottom: 1px solid #000;
   font-size: 0.78rem;
 }
 
@@ -775,17 +834,17 @@ h1 {
 .gst-invoice .inv-einv-qr-placeholder {
   width: 88px;
   height: 88px;
-  border: 1px dashed #666;
+  border: 1px dashed #000;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.65rem;
-  color: #555;
+  color: #000;
 }
 
 /* Invoice meta block: HTML table + real borders (matches line-items grid; prints without background graphics) */
 .gst-invoice {
-  --inv-meta-grid-line: #333;
+  --inv-meta-grid-line: #000;
   --inv-meta-cell-pad-y: 0.5rem;
   --inv-meta-cell-pad-x: 0.65rem;
 }
@@ -854,6 +913,27 @@ h1 {
   padding: var(--inv-meta-cell-pad-y) var(--inv-meta-cell-pad-x);
   line-height: 1.4;
   word-break: break-word;
+}
+
+.gst-invoice .inv-terms-delivery-aside {
+  border: 1px solid var(--inv-meta-grid-line);
+  background: #fff;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gst-invoice .inv-terms-delivery-aside .inv-meta-terms-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.gst-invoice .block-label-caps {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.92em;
 }
 
 .gst-invoice .inv-totals-balance-row {
@@ -931,7 +1011,7 @@ h1 {
 
 .gst-invoice .inv-grand-total-row td,
 .gst-invoice .inv-hsn-total-row td {
-  border-top: 1px solid #222;
+  border-top: 1px solid #000;
 }
 
 .gst-invoice .c-total-label {
@@ -956,11 +1036,16 @@ h1 {
 
 /* Single A4–sized compact invoice (screen + PDF) — wins over .gst-invoice defaults */
 .gst-invoice.invoice-a4-compact.invoice-a4-single {
+  --inv-ink: #000;
+  --inv-meta-grid-line: #000;
   font-size: 6.5pt;
   line-height: 1.2;
+  /* Fixed width so layout matches print/desktop; narrow viewports scroll horizontally */
+  width: 180mm;
+  min-width: 180mm;
   max-width: 180mm;
   margin: 0 auto;
-  color: #111;
+  color: var(--inv-ink);
   padding: 3mm 4mm 4mm;
   min-height: 0;
   box-sizing: border-box;
@@ -969,25 +1054,26 @@ h1 {
 .gst-invoice.invoice-a4-single .inv-top-title {
   padding-top: 0.2rem;
   margin-bottom: 0.35rem;
+  border-bottom-color: var(--inv-ink);
 }
 
-.gst-invoice.invoice-a4-single .inv-main-bill-split {
+.gst-invoice.invoice-a4-single .inv-bill-header-grid {
   gap: 0.3rem 0.35rem;
   padding-bottom: 0.3rem;
   margin-bottom: 0.35rem;
   border-bottom-width: 1px;
 }
 
-.gst-invoice.invoice-a4-single .inv-meta-terms-td .inv-meta-terms-wrap {
+.gst-invoice.invoice-a4-single .inv-terms-delivery-aside .inv-meta-terms-wrap {
   min-height: 2.5rem;
 }
 
-.gst-invoice.invoice-a4-single .inv-meta-terms-label {
+.gst-invoice.invoice-a4-single .inv-terms-delivery-aside .inv-meta-terms-label {
   font-size: 6.5pt;
   padding: 0.1rem 0.22rem;
 }
 
-.gst-invoice.invoice-a4-single .inv-meta-terms-value {
+.gst-invoice.invoice-a4-single .inv-terms-delivery-aside .inv-meta-terms-value {
   font-size: 6.25pt;
   padding: 0.12rem 0.22rem;
   line-height: 1.3;
@@ -1071,6 +1157,7 @@ h1 {
 
 .gst-invoice.invoice-a4-single .inv-totals-balance-row {
   margin: 0.15rem 0;
+  flex-wrap: nowrap;
 }
 
 .gst-invoice.invoice-a4-single .inv-party-kv .inv-party-line {
@@ -1124,7 +1211,12 @@ h1 {
 .gst-invoice.invoice-a4-single .inv-print-table th,
 .gst-invoice.invoice-a4-single .inv-print-table td {
   padding: 0.12rem 0.24rem;
-  border-color: #222;
+  border-color: var(--inv-ink);
+}
+
+.gst-invoice.invoice-a4-single .inv-grand-total-row td,
+.gst-invoice.invoice-a4-single .inv-hsn-total-row td {
+  border-top-color: var(--inv-ink);
 }
 
 .gst-invoice.invoice-a4-single .inv-print-table th {
@@ -1203,28 +1295,34 @@ h1 {
   margin-top: 0.25rem;
 }
 
-.gst-invoice .inv-main-bill-split {
+.gst-invoice .inv-bill-header-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
+  grid-template-rows: auto auto;
   gap: 0.65rem 0.85rem;
-  align-items: start;
+  align-items: stretch;
   border-bottom: 1px solid var(--inv-meta-grid-line);
   padding-bottom: 0.65rem;
   margin-bottom: 0.65rem;
 }
 
-.gst-invoice .inv-main-bill-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+.gst-invoice .inv-bill-top-left,
+.gst-invoice .inv-bill-top-right {
+  align-self: start;
+}
+
+.gst-invoice .inv-bill-bottom-left,
+.gst-invoice .inv-bill-bottom-right {
   min-height: 0;
 }
 
-.gst-invoice .inv-main-bill-right {
+.gst-invoice .inv-bill-bottom-right {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  min-height: 0;
+  align-items: stretch;
+}
+
+.gst-invoice .inv-bill-top-right {
   width: 100%;
   text-align: left;
 }
@@ -1321,7 +1419,7 @@ h1 {
 }
 
 @media (max-width: 520px) {
-  .gst-invoice .inv-main-bill-split,
+  .gst-invoice .inv-bill-header-grid,
   .gst-invoice .inv-two-col {
     grid-template-columns: 1fr;
   }
@@ -1331,8 +1429,23 @@ h1 {
   }
 }
 
+/* Same Tally-style grid on phones as on desktop (do not stack header/footer columns) */
+@media (max-width: 520px) {
+  .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-bill-header-grid {
+    grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
+  }
+
+  .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-two-col {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-bank-terms {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .gst-invoice .inv-block {
-  border: 1px solid #bbb;
+  border: 1px solid #000;
   padding: 0.5rem 0.65rem;
   border-radius: 4px;
 }
@@ -1381,7 +1494,7 @@ h1 {
   gap: 1rem;
   margin-top: 1rem;
   font-size: 0.85rem;
-  border-top: 1px solid #ccc;
+  border-top: 1px solid #000;
   padding-top: 0.75rem;
   align-items: start;
 }
@@ -1392,7 +1505,7 @@ h1 {
 }
 
 @media (max-width: 520px) {
-  .gst-invoice .inv-bank-terms {
+  .gst-invoice:not(.invoice-a4-single) .inv-bank-terms {
     grid-template-columns: 1fr;
   }
 }
@@ -1416,7 +1529,7 @@ h1 {
 .gst-invoice .sig-customer {
   flex: 1;
   min-height: 72px;
-  border-top: 1px solid #333;
+  border-top: 1px solid #000;
   padding-top: 0.35rem;
 }
 
@@ -1428,7 +1541,7 @@ h1 {
 
 .gst-invoice .sig-line {
   margin-top: 1.25rem;
-  border-top: 1px solid #333;
+  border-top: 1px solid #000;
   padding-top: 0.35rem;
 }
 
@@ -1472,7 +1585,7 @@ h1 {
 
 .inv-print-table th,
 .inv-print-table td {
-  border: 1px solid #333;
+  border: 1px solid #000;
   padding: 0.35rem 0.45rem;
 }
 
@@ -1575,10 +1688,12 @@ h1 {
   }
 
   #invoice-print-root .inv-meta-print-table td.inv-meta-td {
-    border: 1px solid #333;
+    border: 1px solid #000;
   }
 
   .gst-invoice.invoice-a4-compact.invoice-a4-single {
+    width: 100%;
+    min-width: 0;
     max-width: none;
     font-size: 7pt;
   }

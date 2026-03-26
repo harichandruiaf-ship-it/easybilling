@@ -1,5 +1,5 @@
 import { amountToWordsIn } from "./number-to-words-in.js";
-import { formatInvoiceDateNumeric } from "./invoices.js";
+import { formatInvoiceDateDashed } from "./invoices.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -82,8 +82,8 @@ function bolCombinedStr(inv) {
   return bolParts.filter(Boolean).join(" ").trim() || "—";
 }
 
-/** Single right-column grid: invoice / refs + shipping / dispatch (one continuous bordered block). */
-function buildMetaGridFullHtml(inv, dateStr) {
+/** Meta grid beside seller only (rows 1–7). Terms of delivery is a separate aside beside parties. */
+function buildMetaGridOnlyHtml(inv, dateStr) {
   const refParts = [nz(inv.referenceNo), nz(inv.referenceDate)].filter(Boolean);
   const refCombined = refParts.length ? refParts.join(" dt ") : "—";
   const bolCombined = bolCombinedStr(inv);
@@ -95,23 +95,20 @@ function buildMetaGridFullHtml(inv, dateStr) {
   const r4 = `<tr>${metaCell("Buyer's Order No.", inv.buyerOrderNo, false, 3)}${metaCell("Dated", inv.buyerOrderDate, false, 3)}</tr>`;
   const r5 = `<tr>${metaCell("Dispatch Doc No.", inv.dispatchDocNo, false, 3)}${metaCell("Delivery Note Date", inv.deliveryNoteDate, false, 3)}</tr>`;
   const r6 = `<tr>${metaCell("Dispatched through", inv.dispatchedThrough, false, 3)}${metaCell("Destination", inv.destination, false, 3)}</tr>`;
-  const r7 = `<tr>${metaCell("Bill of Lading / LR-RR No.", bolCombined, false, 3)}${metaCell("Motor Vehicle No.", inv.motorVehicleNo, false, 3)}</tr>`;
-  const termsRow = buildMetaTermsRow(inv);
+  const r7 = `<tr>${metaCell("Bill of Lading/LR-RR No. & Date", bolCombined, false, 3)}${metaCell("Motor Vehicle No.", inv.motorVehicleNo, false, 3)}</tr>`;
 
-  return `<table class="inv-meta-print-table" role="presentation"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><tbody>${r1}${r2}${r3}${r4}${r5}${r6}${r7}${termsRow}</tbody></table>`;
+  return `<table class="inv-meta-print-table" role="presentation"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><tbody>${r1}${r2}${r3}${r4}${r5}${r6}${r7}</tbody></table>`;
 }
 
-function buildMetaTermsRow(inv) {
+function buildTermsOfDeliveryAside(inv) {
   const raw = nz(inv.termsOfDelivery);
   const inner = !raw ? "—" : escapeHtml(raw).replace(/\n/g, "<br />");
-  return `<tr class="inv-meta-terms-tr">
-    <td colspan="6" class="inv-meta-td inv-meta-terms-td">
+  return `<div class="inv-terms-delivery-aside">
       <div class="inv-meta-terms-wrap">
         <div class="inv-meta-terms-label">Terms of Delivery</div>
         <div class="inv-meta-terms-value">${inner}</div>
       </div>
-    </td>
-  </tr>`;
+    </div>`;
 }
 
 function hsnSummaryRows(inv) {
@@ -221,7 +218,6 @@ function buildPartyBlockInner(p) {
   const kv = [];
   kv.push(partyKV("Phone No.", p.phone));
   if (nz(p.contactExtra)) kv.push(partyKV("Contact", p.contactExtra));
-  if (nz(p.email)) kv.push(partyKV("Email", p.email));
   if (nz(p.gstin)) kv.push(partyKV("GSTIN/UIN", p.gstin));
   if (nz(p.pan)) kv.push(partyKV("PAN / IT No.", p.pan));
   if (nz(p.stateName) || nz(p.stateCode)) {
@@ -229,6 +225,7 @@ function buildPartyBlockInner(p) {
     kv.push(partyKV("State Name", sv));
   }
   if (nz(p.placeOfSupply)) kv.push(partyKV("Place of supply", p.placeOfSupply));
+  if (nz(p.email)) kv.push(partyKV("Email", p.email));
   return `${head}<div class="inv-party-kv">${kv.join("")}</div>`;
 }
 
@@ -266,7 +263,7 @@ function partyShipTo(inv) {
 }
 
 function buildHeaderAndBuyer(inv) {
-  const dateStr = formatInvoiceDateNumeric(inv.date);
+  const dateStr = formatInvoiceDateDashed(inv.date);
   const sellerPan = inv.sellerPan ? partyKV("PAN", inv.sellerPan) : "";
   const sellerUdyam = inv.sellerUdyam ? partyKV("UDYAM", inv.sellerUdyam) : "";
   const sellerContactX = inv.sellerContactExtra ? partyKV("Contact", inv.sellerContactExtra) : "";
@@ -285,8 +282,8 @@ function buildHeaderAndBuyer(inv) {
   const subLine = inv.sellerSubtitle ? `<p class="inv-subtitle">${escapeHtml(inv.sellerSubtitle)}</p>` : "";
 
   return `${buildTopTitle()}${buildEInvoiceStrip(inv)}
-    <div class="inv-main-bill-split">
-      <div class="inv-main-bill-left">
+    <div class="inv-bill-header-grid">
+      <div class="inv-bill-top-left">
         <div class="inv-seller">
           <p class="inv-co-name"><strong>${escapeHtml(inv.sellerName)}</strong></p>
           ${subLine}
@@ -294,13 +291,18 @@ function buildHeaderAndBuyer(inv) {
           <div class="inv-party-kv">
             ${partyKV("Phone No.", inv.sellerPhone)}
             ${sellerContactX}
-            ${sellerEmailLine}
             ${sellerGstLine}
             ${sellerStateLine}
+            ${sellerEmailLine}
             ${sellerPan}
             ${sellerUdyam}
           </div>
         </div>
+      </div>
+      <div class="inv-bill-top-right">
+        ${buildMetaGridOnlyHtml(inv, dateStr)}
+      </div>
+      <div class="inv-bill-bottom-left">
         <div class="inv-mid-left">
           <div class="inv-block">
             <div class="block-label">Consignee (Ship to)</div>
@@ -312,8 +314,8 @@ function buildHeaderAndBuyer(inv) {
           </div>
         </div>
       </div>
-      <div class="inv-main-bill-right">
-        ${buildMetaGridFullHtml(inv, dateStr)}
+      <div class="inv-bill-bottom-right">
+        ${buildTermsOfDeliveryAside(inv)}
       </div>
     </div>`;
 }
@@ -420,7 +422,7 @@ function buildFooterBlock(inv) {
       <div class="inv-footer-decl-col">${termsBlock}</div>
       <div class="inv-footer-bank-col">
       <div class="inv-bank">
-        <div class="block-label">Company&apos;s bank details</div>
+        <div class="block-label block-label-caps">Company&apos;s bank details</div>
         ${bankHolder}
         ${inv.bankName ? `<div><strong>${escapeHtml(inv.bankName)}</strong></div>` : ""}
         ${bankBranch}
@@ -432,7 +434,7 @@ function buildFooterBlock(inv) {
 
     <div class="inv-sign-row">
       <div class="sig-customer">
-        <p>Customer's seal &amp; signature</p>
+        <p>Customer&apos;s Seal and Signature</p>
       </div>
       <div class="sig-box">
         <p>For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</p>

@@ -136,6 +136,7 @@ export async function saveInvoice(db, uid, payload) {
   return { id: newRef.id, invoiceNumber };
 }
 
+/** One row for history list + client-side filters (all fields optional for filtering). */
 export async function listInvoicesForUser(db, uid) {
   const q = query(
     collection(db, "invoices"),
@@ -145,12 +146,32 @@ export async function listInvoicesForUser(db, uid) {
   const snap = await getDocs(q);
   return snap.docs.map((d) => {
     const x = d.data();
+    const items = Array.isArray(x.items) ? x.items : [];
+    const hsnBlob = items
+      .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
+      .join(" ");
     return {
       id: d.id,
-      invoiceNumber: x.invoiceNumber,
-      customerName: x.customerName,
-      total: x.total,
+      invoiceNumber: x.invoiceNumber || "",
+      customerName: x.customerName || "",
+      consigneeName: x.consigneeName || "",
+      total: typeof x.total === "number" && !Number.isNaN(x.total) ? x.total : 0,
       date: x.date,
+      buyerGstin: x.buyerGstin || "",
+      buyerPan: x.buyerPan || "",
+      placeOfSupply: x.placeOfSupply || "",
+      buyerAddress: x.buyerAddress || "",
+      destination: x.destination || "",
+      dispatchedThrough: x.dispatchedThrough || "",
+      motorVehicleNo: x.motorVehicleNo || "",
+      ewayBillNo: x.ewayBillNo || "",
+      billOfLadingNo: x.billOfLadingNo || "",
+      sellerGstin: x.sellerGstin || "",
+      sellerPan: x.sellerPan || "",
+      referenceNo: x.referenceNo || "",
+      deliveryNote: x.deliveryNote || "",
+      paymentTerms: x.paymentTerms || "",
+      hsnSearchBlob: hsnBlob,
     };
   });
 }
@@ -181,4 +202,15 @@ export function formatInvoiceDateNumeric(date) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
+}
+
+/** Tally-style display on printed invoice (e.g. 14-03-2026). */
+export function formatInvoiceDateDashed(date) {
+  if (!date) return "—";
+  const d = date instanceof Timestamp ? date.toDate() : date;
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
 }

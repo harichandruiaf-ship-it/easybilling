@@ -526,8 +526,112 @@
     </div>
 
     <!-- History -->
-    <section id="view-history" class="view container" hidden>
+    <section id="view-history" class="view container container-wide" hidden>
       <h1>Invoice history</h1>
+      <p class="muted">Search and filter invoices saved to your account.</p>
+
+      <form id="form-history-filters" class="card history-filters" novalidate>
+        <div class="history-filters-head">
+          <h2 class="history-filters-heading">Filters</h2>
+          <label class="history-filter-mode">
+            Filter mode
+            <select id="hist-filter-mode" autocomplete="off">
+              <option value="normal">Normal</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="history-filter-grid">
+          <label>
+            Date range
+            <select id="hist-date-preset" name="datePreset" autocomplete="off">
+              <option value="all">All dates</option>
+              <option value="today">Today</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+              <option value="month">This month</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label id="hist-date-from-wrap" class="history-custom-date hidden">
+            From
+            <input type="date" id="hist-date-from" autocomplete="off" />
+          </label>
+          <label id="hist-date-to-wrap" class="history-custom-date hidden">
+            To
+            <input type="date" id="hist-date-to" autocomplete="off" />
+          </label>
+          <label>
+            Customer name
+            <select id="hist-customer" autocomplete="off">
+              <option value="">All customers</option>
+            </select>
+          </label>
+          <label>
+            Min amount (₹)
+            <input type="number" id="hist-amount-min" min="0" step="0.01" placeholder="Any" />
+          </label>
+          <label>
+            Max amount (₹)
+            <input type="number" id="hist-amount-max" min="0" step="0.01" placeholder="Any" />
+          </label>
+        </div>
+
+        <div id="history-advanced-fields" class="history-filter-grid hidden">
+          <label>
+            Invoice no.
+            <input type="text" id="hist-invoice-no" maxlength="80" placeholder="Contains..." autocomplete="off" />
+          </label>
+          <label>
+            Buyer GSTIN
+            <input type="text" id="hist-buyer-gstin" maxlength="20" placeholder="Partial match" autocomplete="off" />
+          </label>
+          <label>
+            Buyer PAN
+            <input type="text" id="hist-buyer-pan" maxlength="12" placeholder="Partial match" autocomplete="off" />
+          </label>
+          <label>
+            Seller GSTIN
+            <input type="text" id="hist-seller-gstin" maxlength="20" placeholder="Partial match" autocomplete="off" />
+          </label>
+          <label>
+            Seller PAN
+            <input type="text" id="hist-seller-pan" maxlength="12" placeholder="Partial match" autocomplete="off" />
+          </label>
+          <label>
+            Place of supply
+            <input type="text" id="hist-place" maxlength="200" placeholder="Contains..." autocomplete="off" />
+          </label>
+          <label>
+            Location / address / destination
+            <input type="text" id="hist-location" maxlength="300" placeholder="Address, destination..." autocomplete="off" />
+          </label>
+          <label>
+            Transport &amp; logistics
+            <input type="text" id="hist-transport" maxlength="200" placeholder="e-Way, dispatch, vehicle, B/L..." autocomplete="off" />
+          </label>
+          <label>
+            Reference no.
+            <input type="text" id="hist-reference" maxlength="120" placeholder="Contains..." autocomplete="off" />
+          </label>
+          <label>
+            HSN / item search
+            <input type="text" id="hist-hsn" maxlength="80" placeholder="HSN or item text" autocomplete="off" />
+          </label>
+          <label>
+            Delivery note
+            <input type="text" id="hist-delivery-note" maxlength="120" placeholder="Contains..." autocomplete="off" />
+          </label>
+        </div>
+        <div class="btn-row wrap history-filter-actions">
+          <button type="submit" class="btn btn-primary" id="btn-history-apply">Apply filters</button>
+          <button type="button" class="btn btn-secondary" id="btn-history-clear">Clear all</button>
+        </div>
+      </form>
+
+      <p class="muted small" id="history-count" hidden></p>
       <p class="muted" id="history-empty">No invoices yet.</p>
       <ul class="invoice-list" id="history-list"></ul>
     </section>
