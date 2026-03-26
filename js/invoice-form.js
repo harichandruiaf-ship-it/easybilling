@@ -1,4 +1,5 @@
 import { computeTotals, round2 } from "./invoices.js";
+import { withLoading } from "./loading.js";
 
 const GSTIN_REGEX = /^([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})$/;
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
@@ -82,30 +83,167 @@ function parseOptMoney(el) {
   return Number.isFinite(n) ? round2(n) : null;
 }
 
-function toggleCustomerCheckboxes(selectedId) {
-  const lblNew = document.getElementById("lbl-save-new");
-  const lblUpd = document.getElementById("lbl-update-customer");
-  const chkNew = document.getElementById("inv-save-new-customer");
-  const chkUpd = document.getElementById("inv-update-customer");
-  if (selectedId) {
-    lblNew.classList.add("hidden");
-    lblUpd.classList.remove("hidden");
-    chkNew.checked = false;
-  } else {
-    lblNew.classList.remove("hidden");
-    lblUpd.classList.add("hidden");
-    chkUpd.checked = false;
-    chkNew.checked = true;
-  }
+/** HTML &lt;input type="date"&gt; value (yyyy-mm-dd) → dd/mm/yyyy for Firestore / invoice print */
+function isoDateToDdMmYyyy(iso) {
+  const s = String(iso ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function normKey(s) {
+  return String(s ?? "")
+    .toLowerCase()
+    .trim();
 }
 
 export function initInvoiceForm(opts) {
   const tbody = document.getElementById("items-tbody");
   const btnAdd = document.getElementById("btn-add-item");
   const form = document.getElementById("form-invoice");
-  const sel = document.getElementById("inv-customer-select");
+  const customerSearchInput = document.getElementById("inv-customer-search");
+  const customerIdHidden = document.getElementById("inv-customer-id");
+  const listbox = document.getElementById("inv-customer-listbox");
+  const combobox = document.getElementById("inv-customer-combobox");
 
   let taxRates = { cgstPercent: 2.5, sgstPercent: 2.5 };
+  let customerList = [];
+
+  function closeCustomerListbox() {
+    if (!listbox) return;
+    listbox.classList.add("hidden");
+    listbox.hidden = true;
+    customerSearchInput?.setAttribute("aria-expanded", "false");
+  }
+
+  function openCustomerListbox() {
+    if (!listbox) return;
+    listbox.classList.remove("hidden");
+    listbox.hidden = false;
+    customerSearchInput?.setAttribute("aria-expanded", "true");
+  }
+
+  function renderCustomerListbox() {
+    if (!listbox) return;
+    const q = normKey(customerSearchInput?.value || "");
+    const matches = !q
+      ? customerList.slice(0, 80)
+      : customerList.filter((c) => normKey(c.name).includes(q)).slice(0, 80);
+
+    listbox.innerHTML = "";
+
+    const newLi = document.createElement("li");
+    newLi.setAttribute("role", "option");
+    newLi.className = "inv-customer-option inv-customer-option-new";
+    newLi.dataset.customerId = "";
+    newLi.textContent = "— New customer (enter details below) —";
+    listbox.appendChild(newLi);
+
+    for (const c of matches) {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.className = "inv-customer-option";
+      li.dataset.customerId = c.id;
+      li.textContent = c.name || c.id;
+      listbox.appendChild(li);
+    }
+  }
+
+  async function applyCustomerSelection(customerId) {
+    const id = customerId || "";
+    customerIdHidden.value = id;
+
+    if (!id) {
+      customerSearchInput.value = "";
+      document.getElementById("inv-buyer-name").value = "";
+      document.getElementById("inv-buyer-address").value = "";
+      document.getElementById("inv-buyer-phone").value = "";
+      document.getElementById("inv-buyer-gstin").value = "";
+      document.getElementById("inv-buyer-state").value = "";
+      document.getElementById("inv-buyer-state-code").value = "";
+      document.getElementById("inv-buyer-pan").value = "";
+      document.getElementById("inv-place-of-supply").value = "";
+      document.getElementById("inv-buyer-contact").value = "";
+      document.getElementById("inv-buyer-email").value = "";
+      document.getElementById("inv-consignee-same").checked = true;
+      toggleConsigneeField();
+      closeCustomerListbox();
+      return;
+    }
+
+    const picked = customerList.find((c) => c.id === id);
+    if (picked) customerSearchInput.value = picked.name || "";
+
+    if (opts.loadCustomer) {
+      await withLoading(async () => {
+        const c = await opts.loadCustomer(id);
+        if (!c) return;
+        document.getElementById("inv-buyer-name").value = c.name || "";
+        document.getElementById("inv-buyer-address").value = c.address || "";
+        document.getElementById("inv-buyer-phone").value = c.phone || "";
+        document.getElementById("inv-buyer-gstin").value = c.gstin || "";
+        document.getElementById("inv-buyer-state").value = c.stateName || "";
+        document.getElementById("inv-buyer-state-code").value = c.stateCode || "";
+        document.getElementById("inv-buyer-pan").value = c.buyerPan || "";
+        document.getElementById("inv-place-of-supply").value = c.placeOfSupply || "";
+        document.getElementById("inv-buyer-contact").value = c.buyerContact || "";
+        document.getElementById("inv-buyer-email").value = c.buyerEmail || "";
+        const same = c.consigneeSameAsBuyer !== false;
+        document.getElementById("inv-consignee-same").checked = same;
+        toggleConsigneeField();
+        if (!same) {
+          document.getElementById("inv-consignee-name").value = c.consigneeName || "";
+          document.getElementById("inv-consignee-address").value = c.consigneeAddress || "";
+          document.getElementById("inv-consignee-state").value = c.consigneeStateName || "";
+          document.getElementById("inv-consignee-state-code").value = c.consigneeStateCode || "";
+          document.getElementById("inv-consignee-gstin").value = c.consigneeGstin || "";
+          document.getElementById("inv-consignee-phone").value = c.consigneePhone || "";
+          document.getElementById("inv-consignee-email").value = c.consigneeEmail || "";
+        }
+      }, "Loading customer…");
+    }
+    closeCustomerListbox();
+  }
+
+  if (listbox && customerSearchInput) {
+    listbox.addEventListener("mousedown", (e) => {
+      const li = e.target.closest(".inv-customer-option");
+      if (!li) return;
+      e.preventDefault();
+      const cid = li.dataset.customerId ?? "";
+      applyCustomerSelection(cid);
+    });
+
+    customerSearchInput.addEventListener("input", () => {
+      const hid = customerIdHidden.value;
+      if (hid) {
+        const cur = customerList.find((c) => c.id === hid);
+        if (cur && normKey(cur.name) !== normKey(customerSearchInput.value)) {
+          customerIdHidden.value = "";
+        }
+      }
+      renderCustomerListbox();
+      openCustomerListbox();
+    });
+
+    customerSearchInput.addEventListener("focus", () => {
+      renderCustomerListbox();
+      openCustomerListbox();
+    });
+
+    customerSearchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeCustomerListbox();
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (combobox && !combobox.contains(e.target)) {
+        closeCustomerListbox();
+      }
+    });
+  }
 
   function setTaxRates(cgstPercent, sgstPercent) {
     taxRates = {
@@ -156,53 +294,13 @@ export function initInvoiceForm(opts) {
 
   document.getElementById("inv-consignee-same").addEventListener("change", toggleConsigneeField);
 
-  sel.addEventListener("change", async () => {
-    const id = sel.value;
-    toggleCustomerCheckboxes(id);
-    if (!id) {
-      document.getElementById("inv-buyer-name").value = "";
-      document.getElementById("inv-buyer-address").value = "";
-      document.getElementById("inv-buyer-phone").value = "";
-      document.getElementById("inv-buyer-gstin").value = "";
-      document.getElementById("inv-buyer-state").value = "";
-      document.getElementById("inv-buyer-state-code").value = "";
-      document.getElementById("inv-buyer-pan").value = "";
-      document.getElementById("inv-place-of-supply").value = "";
-      document.getElementById("inv-buyer-contact").value = "";
-      document.getElementById("inv-consignee-same").checked = true;
-      toggleConsigneeField();
-      return;
-    }
-    if (opts.loadCustomer) {
-      const c = await opts.loadCustomer(id);
-      if (!c) return;
-      document.getElementById("inv-buyer-name").value = c.name || "";
-      document.getElementById("inv-buyer-address").value = c.address || "";
-      document.getElementById("inv-buyer-phone").value = c.phone || "";
-      document.getElementById("inv-buyer-gstin").value = c.gstin || "";
-      document.getElementById("inv-buyer-state").value = c.stateName || "";
-      document.getElementById("inv-buyer-state-code").value = c.stateCode || "";
-      document.getElementById("inv-buyer-pan").value = c.buyerPan || "";
-      document.getElementById("inv-place-of-supply").value = c.placeOfSupply || "";
-      document.getElementById("inv-buyer-contact").value = c.buyerContact || "";
-      const same = c.consigneeSameAsBuyer !== false;
-      document.getElementById("inv-consignee-same").checked = same;
-      toggleConsigneeField();
-      if (!same) {
-        document.getElementById("inv-consignee-name").value = c.consigneeName || "";
-        document.getElementById("inv-consignee-address").value = c.consigneeAddress || "";
-        document.getElementById("inv-consignee-state").value = c.consigneeStateName || "";
-        document.getElementById("inv-consignee-state-code").value = c.consigneeStateCode || "";
-        document.getElementById("inv-consignee-gstin").value = c.consigneeGstin || "";
-      }
-    }
-  });
-
   function resetForm() {
     tbody.innerHTML = "";
     createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
-    sel.innerHTML = '<option value="">— New customer (enter details below) —</option>';
-    sel.value = "";
+    if (customerIdHidden) customerIdHidden.value = "";
+    if (customerSearchInput) customerSearchInput.value = "";
+    closeCustomerListbox();
+    if (listbox) listbox.innerHTML = "";
     document.getElementById("inv-buyer-name").value = "";
     document.getElementById("inv-buyer-address").value = "";
     document.getElementById("inv-buyer-phone").value = "";
@@ -212,8 +310,16 @@ export function initInvoiceForm(opts) {
     document.getElementById("inv-buyer-pan").value = "";
     document.getElementById("inv-place-of-supply").value = "";
     document.getElementById("inv-buyer-contact").value = "";
+    document.getElementById("inv-buyer-email").value = "";
     document.getElementById("inv-consignee-same").checked = true;
     toggleConsigneeField();
+    document.getElementById("inv-consignee-name").value = "";
+    document.getElementById("inv-consignee-address").value = "";
+    document.getElementById("inv-consignee-state").value = "";
+    document.getElementById("inv-consignee-state-code").value = "";
+    document.getElementById("inv-consignee-gstin").value = "";
+    document.getElementById("inv-consignee-phone").value = "";
+    document.getElementById("inv-consignee-email").value = "";
     document.getElementById("inv-delivery-note").value = "";
     document.getElementById("inv-payment-terms").value = "";
     document.getElementById("inv-ref-no").value = "";
@@ -226,22 +332,12 @@ export function initInvoiceForm(opts) {
     document.getElementById("inv-dispatch-through").value = "";
     document.getElementById("inv-destination").value = "";
     document.getElementById("inv-bol").value = "";
+    document.getElementById("inv-bol-date").value = "";
     document.getElementById("inv-vehicle-no").value = "";
     document.getElementById("inv-terms-delivery").value = "";
-    document.getElementById("inv-vessel-flight").value = "";
-    document.getElementById("inv-place-receipt").value = "";
-    document.getElementById("inv-port-loading").value = "";
-    document.getElementById("inv-port-discharge").value = "";
-    document.getElementById("inv-einv-irn").value = "";
-    document.getElementById("inv-einv-ack-no").value = "";
-    document.getElementById("inv-einv-ack-date").value = "";
-    document.getElementById("inv-einv-qr-url").value = "";
     document.getElementById("inv-prev-balance").value = "";
     document.getElementById("inv-curr-balance").value = "";
     document.getElementById("inv-eway").value = "";
-    document.getElementById("inv-save-new-customer").checked = true;
-    document.getElementById("inv-update-customer").checked = false;
-    toggleCustomerCheckboxes("");
     document.getElementById("invoice-form-error").textContent = "";
     recalcTotals();
   }
@@ -260,16 +356,17 @@ export function initInvoiceForm(opts) {
     const buyerPan = document.getElementById("inv-buyer-pan").value.trim().toUpperCase();
     const placeOfSupply = document.getElementById("inv-place-of-supply").value.trim();
     const buyerContact = document.getElementById("inv-buyer-contact").value.trim();
+    const buyerEmail = document.getElementById("inv-buyer-email").value.trim();
     const consigneeSame = document.getElementById("inv-consignee-same").checked;
     const consigneeName = document.getElementById("inv-consignee-name").value.trim();
     const consigneeAddress = document.getElementById("inv-consignee-address").value.trim();
     const consigneeGstin = document.getElementById("inv-consignee-gstin").value.trim().toUpperCase();
     const consigneeStateName = document.getElementById("inv-consignee-state").value.trim();
     const consigneeStateCode = document.getElementById("inv-consignee-state-code").value.trim();
+    const consigneePhone = document.getElementById("inv-consignee-phone").value.trim();
+    const consigneeEmail = document.getElementById("inv-consignee-email").value.trim();
     const ewayBillNo = document.getElementById("inv-eway").value.trim();
-    const selectedCustomerId = sel.value || "";
-    const saveNewCustomer = document.getElementById("inv-save-new-customer").checked;
-    const updateCustomer = document.getElementById("inv-update-customer").checked;
+    const selectedCustomerId = (customerIdHidden && customerIdHidden.value) || "";
 
     if (!buyerName) {
       errEl.textContent = "Enter buyer name.";
@@ -346,8 +443,8 @@ export function initInvoiceForm(opts) {
     const totals = recalcTotals();
     const prevBal = parseOptMoney(document.getElementById("inv-prev-balance"));
     const currBal = parseOptMoney(document.getElementById("inv-curr-balance"));
-    if (opts.onSubmit) {
-      await opts.onSubmit({
+    if (opts.onPreview) {
+      await opts.onPreview({
         customerName: buyerName,
         buyerAddress,
         buyerPhone,
@@ -357,40 +454,42 @@ export function initInvoiceForm(opts) {
         buyerPan,
         placeOfSupply,
         buyerContact,
+        buyerEmail,
         consigneeSameAsBuyer: consigneeSame,
         consigneeName: consigneeSame ? "" : consigneeName,
         consigneeAddress: consigneeSame ? "" : consigneeAddress,
         consigneeGstin: consigneeSame ? "" : consigneeGstin,
         consigneeStateName: consigneeSame ? "" : consigneeStateName,
         consigneeStateCode: consigneeSame ? "" : consigneeStateCode,
+        consigneePhone: consigneeSame ? "" : consigneePhone,
+        consigneeEmail: consigneeSame ? "" : consigneeEmail,
         ewayBillNo,
         deliveryNote: document.getElementById("inv-delivery-note").value.trim(),
         paymentTerms: document.getElementById("inv-payment-terms").value.trim(),
         referenceNo: document.getElementById("inv-ref-no").value.trim(),
-        referenceDate: document.getElementById("inv-ref-date").value.trim(),
+        referenceDate: isoDateToDdMmYyyy(document.getElementById("inv-ref-date").value),
         otherReferences: document.getElementById("inv-other-refs").value.trim(),
         buyerOrderNo: document.getElementById("inv-buyer-order-no").value.trim(),
-        buyerOrderDate: document.getElementById("inv-buyer-order-date").value.trim(),
+        buyerOrderDate: isoDateToDdMmYyyy(document.getElementById("inv-buyer-order-date").value),
         dispatchDocNo: document.getElementById("inv-dispatch-doc").value.trim(),
-        deliveryNoteDate: document.getElementById("inv-delivery-note-date").value.trim(),
+        deliveryNoteDate: isoDateToDdMmYyyy(document.getElementById("inv-delivery-note-date").value),
         dispatchedThrough: document.getElementById("inv-dispatch-through").value.trim(),
         destination: document.getElementById("inv-destination").value.trim(),
         billOfLadingNo: document.getElementById("inv-bol").value.trim(),
+        billOfLadingDate: isoDateToDdMmYyyy(document.getElementById("inv-bol-date").value),
         motorVehicleNo: document.getElementById("inv-vehicle-no").value.trim(),
         termsOfDelivery: document.getElementById("inv-terms-delivery").value.trim(),
-        vesselFlightNo: document.getElementById("inv-vessel-flight").value.trim(),
-        placeReceiptShipper: document.getElementById("inv-place-receipt").value.trim(),
-        portLoading: document.getElementById("inv-port-loading").value.trim(),
-        portDischarge: document.getElementById("inv-port-discharge").value.trim(),
-        eInvoiceIrn: document.getElementById("inv-einv-irn").value.trim(),
-        eInvoiceAckNo: document.getElementById("inv-einv-ack-no").value.trim(),
-        eInvoiceAckDate: document.getElementById("inv-einv-ack-date").value.trim(),
-        eInvoiceQrUrl: document.getElementById("inv-einv-qr-url").value.trim(),
+        vesselFlightNo: "",
+        placeReceiptShipper: "",
+        portLoading: "",
+        portDischarge: "",
+        eInvoiceIrn: "",
+        eInvoiceAckNo: "",
+        eInvoiceAckDate: "",
+        eInvoiceQrUrl: "",
         previousBalance: prevBal,
         currentBalance: currBal,
         selectedCustomerId,
-        saveNewCustomer,
-        updateCustomer,
         items,
         subtotal: totals.subtotal,
         cgst: totals.cgst,
@@ -412,17 +511,25 @@ export function initInvoiceForm(opts) {
       if (!tbody.querySelector("tr")) createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
       recalcTotals();
     },
+    async selectCustomerById(customerId) {
+      if (!customerId) return;
+      await applyCustomerSelection(customerId);
+    },
     setCustomerOptions(customers) {
-      const v = sel.value;
-      sel.innerHTML = '<option value="">— New customer (enter details below) —</option>';
-      for (const c of customers) {
-        const opt = document.createElement("option");
-        opt.value = c.id;
-        opt.textContent = c.name || c.id;
-        sel.appendChild(opt);
+      customerList = customers || [];
+      if (!customerIdHidden || !customerSearchInput) return;
+      const v = customerIdHidden.value;
+      const stillValid = v && customerList.some((c) => c.id === v);
+      if (stillValid) {
+        const c = customerList.find((x) => x.id === v);
+        customerIdHidden.value = v;
+        customerSearchInput.value = c ? c.name || "" : "";
+      } else {
+        customerIdHidden.value = "";
+        customerSearchInput.value = "";
       }
-      if (v && [...sel.options].some((o) => o.value === v)) sel.value = v;
-      toggleCustomerCheckboxes(sel.value);
+      closeCustomerListbox();
+      if (listbox) listbox.innerHTML = "";
     },
   };
 }

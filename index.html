@@ -171,13 +171,26 @@
       <h1>Create invoice</h1>
       <form id="form-invoice" class="card form-block" novalidate>
         <h2 class="h2-small">Customer</h2>
-        <label>
+        <label class="inv-customer-search-label">
           Load saved customer
-          <select id="inv-customer-select">
-            <option value="">— New customer (enter details below) —</option>
-          </select>
+          <div class="inv-customer-combobox" id="inv-customer-combobox">
+            <input
+              type="search"
+              id="inv-customer-search"
+              class="inv-customer-search-input"
+              placeholder="Search by name…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-autocomplete="list"
+              aria-controls="inv-customer-listbox"
+              aria-expanded="false"
+              role="combobox"
+            />
+            <input type="hidden" id="inv-customer-id" value="" />
+            <ul id="inv-customer-listbox" class="inv-customer-listbox hidden" role="listbox" hidden></ul>
+          </div>
         </label>
-        <p class="muted small">Invoice number and date are set when you save.</p>
+        <p class="muted small">Preview the full invoice, then generate it to assign number, date, and save.</p>
 
         <h2 class="h2-small">Buyer (Bill to)</h2>
         <label>
@@ -220,6 +233,10 @@
           Contact (optional)
           <input type="text" id="inv-buyer-contact" maxlength="80" placeholder="Alternate contact no." />
         </label>
+        <label>
+          Email (optional)
+          <input type="email" id="inv-buyer-email" maxlength="120" placeholder="Buyer email on invoice" />
+        </label>
 
         <h2 class="h2-small">Consignee (Ship to)</h2>
         <label class="check-row">
@@ -249,97 +266,93 @@
             Consignee GSTIN (optional)
             <input type="text" id="inv-consignee-gstin" maxlength="15" />
           </label>
+          <div class="inline-two">
+            <label>
+              Consignee phone
+              <input type="tel" id="inv-consignee-phone" maxlength="20" />
+            </label>
+            <label>
+              Consignee email (optional)
+              <input type="email" id="inv-consignee-email" maxlength="120" />
+            </label>
+          </div>
         </div>
 
         <h2 class="h2-small">Invoice &amp; dispatch (optional)</h2>
-        <p class="muted small">Shown in the top-right box on the printed invoice.</p>
+        <p class="muted small">All fields print on the invoice (empty cells show as —). Dates use the calendar; stored as dd/mm/yyyy on the invoice. e-Way bill is below under Other.</p>
+        <div class="invoice-dispatch-section">
         <div class="inline-two">
           <label>
-            Delivery Note
-            <input type="text" id="inv-delivery-note" maxlength="80" />
+            Delivery note
+            <input type="text" id="inv-delivery-note" maxlength="80" autocomplete="off" />
           </label>
           <label>
             Mode / terms of payment
-            <input type="text" id="inv-payment-terms" maxlength="120" />
+            <input type="text" id="inv-payment-terms" maxlength="120" autocomplete="off" />
           </label>
         </div>
         <div class="inline-two">
           <label>
             Reference No.
-            <input type="text" id="inv-ref-no" maxlength="80" />
+            <input type="text" id="inv-ref-no" maxlength="80" autocomplete="off" />
           </label>
           <label>
             Reference date
-            <input type="text" id="inv-ref-date" maxlength="40" placeholder="dd/mm/yyyy" />
+            <input type="date" id="inv-ref-date" class="input-date" autocomplete="off" />
           </label>
         </div>
         <label>
           Other references
-          <input type="text" id="inv-other-refs" maxlength="200" />
+          <input type="text" id="inv-other-refs" maxlength="200" autocomplete="off" />
         </label>
         <div class="inline-two">
           <label>
             Buyer&apos;s order No.
-            <input type="text" id="inv-buyer-order-no" maxlength="80" />
+            <input type="text" id="inv-buyer-order-no" maxlength="80" autocomplete="off" />
           </label>
           <label>
             Order dated
-            <input type="text" id="inv-buyer-order-date" maxlength="40" />
+            <input type="date" id="inv-buyer-order-date" class="input-date" autocomplete="off" />
           </label>
         </div>
         <div class="inline-two">
           <label>
             Dispatch Doc No.
-            <input type="text" id="inv-dispatch-doc" maxlength="80" />
+            <input type="text" id="inv-dispatch-doc" maxlength="80" autocomplete="off" />
           </label>
           <label>
-            Delivery Note Date
-            <input type="text" id="inv-delivery-note-date" maxlength="40" />
+            Delivery note date
+            <input type="date" id="inv-delivery-note-date" class="input-date" autocomplete="off" />
           </label>
         </div>
         <div class="inline-two">
           <label>
             Dispatched through
-            <input type="text" id="inv-dispatch-through" maxlength="120" />
+            <input type="text" id="inv-dispatch-through" maxlength="120" autocomplete="off" />
           </label>
           <label>
             Destination
-            <input type="text" id="inv-destination" maxlength="120" />
+            <input type="text" id="inv-destination" maxlength="120" autocomplete="off" />
           </label>
         </div>
         <div class="inline-two">
           <label>
             Bill of Lading / LR-RR No.
-            <input type="text" id="inv-bol" maxlength="80" />
+            <input type="text" id="inv-bol" maxlength="80" autocomplete="off" />
           </label>
           <label>
-            Motor Vehicle No.
-            <input type="text" id="inv-vehicle-no" maxlength="40" />
+            B/L or LR date (optional)
+            <input type="date" id="inv-bol-date" class="input-date" autocomplete="off" />
           </label>
         </div>
         <label>
-          Terms of delivery
-          <input type="text" id="inv-terms-delivery" maxlength="200" />
+          Motor Vehicle No.
+          <input type="text" id="inv-vehicle-no" maxlength="40" autocomplete="off" />
         </label>
-        <div class="inline-two">
-          <label>
-            Vessel / Flight No.
-            <input type="text" id="inv-vessel-flight" maxlength="80" />
-          </label>
-          <label>
-            Place of receipt by shipper
-            <input type="text" id="inv-place-receipt" maxlength="120" />
-          </label>
-        </div>
-        <div class="inline-two">
-          <label>
-            City / Port of loading
-            <input type="text" id="inv-port-loading" maxlength="120" />
-          </label>
-          <label>
-            City / Port of discharge
-            <input type="text" id="inv-port-discharge" maxlength="120" />
-          </label>
+        <label>
+          Terms of delivery
+          <textarea id="inv-terms-delivery" rows="3" maxlength="500" placeholder="Optional" autocomplete="off"></textarea>
+        </label>
         </div>
         <div class="inline-two">
           <label>
@@ -352,43 +365,11 @@
           </label>
         </div>
 
-        <h2 class="h2-small">e-Invoice (optional)</h2>
-        <p class="muted small">After generating IRN on the GST portal, paste details here. QR: paste a hosted image URL or a data URL.</p>
-        <label>
-          IRN (Invoice Reference Number)
-          <textarea id="inv-einv-irn" rows="2" maxlength="1000" placeholder="Long alphanumeric IRN"></textarea>
-        </label>
-        <div class="inline-two">
-          <label>
-            Ack No.
-            <input type="text" id="inv-einv-ack-no" maxlength="40" />
-          </label>
-          <label>
-            Ack Date
-            <input type="text" id="inv-einv-ack-date" maxlength="40" placeholder="dd/mm/yyyy" />
-          </label>
-        </div>
-        <label>
-          QR code image URL (optional)
-          <input type="text" id="inv-einv-qr-url" maxlength="2000" placeholder="https://… or data:image/png;base64,…" />
-        </label>
-
         <h2 class="h2-small">Other</h2>
         <label>
           e-Way Bill No. (optional)
           <input type="text" id="inv-eway" maxlength="30" />
         </label>
-
-        <div class="check-row-group">
-          <label class="check-row" id="lbl-save-new">
-            <input type="checkbox" id="inv-save-new-customer" checked />
-            Save as new customer (when not loading from list)
-          </label>
-          <label class="check-row hidden" id="lbl-update-customer">
-            <input type="checkbox" id="inv-update-customer" />
-            Update saved customer with edited details
-          </label>
-        </div>
 
         <h2 class="h2-small">Items</h2>
         <div class="table-wrap">
@@ -418,9 +399,22 @@
 
         <p class="form-error" id="invoice-form-error" role="alert"></p>
         <div class="btn-row wrap">
-          <button type="submit" class="btn btn-primary" id="btn-save-invoice">Save invoice</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-invoice">Preview invoice</button>
         </div>
       </form>
+
+      <div id="invoice-preview-modal" class="invoice-preview-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title">
+        <div class="invoice-preview-backdrop" id="invoice-preview-backdrop" tabindex="-1"></div>
+        <div class="invoice-preview-panel card">
+          <h2 id="invoice-preview-title">Invoice preview</h2>
+          <p class="muted small invoice-preview-hint">Check all details. Invoice number and official date are assigned when you generate the invoice.</p>
+          <div id="invoice-preview-scroll" class="invoice-preview-scroll"></div>
+          <div class="btn-row wrap invoice-preview-actions">
+            <button type="button" class="btn btn-secondary" id="btn-invoice-preview-back">Back to edit</button>
+            <button type="button" class="btn btn-primary" id="btn-invoice-generate">Generate invoice</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Customers -->
@@ -430,6 +424,106 @@
       <p class="muted" id="customers-empty">No customers yet. Create an invoice and save a new buyer.</p>
       <ul class="invoice-list" id="customers-list"></ul>
     </section>
+
+    <div id="customer-edit-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-edit-title">
+      <div class="customer-edit-backdrop" id="customer-edit-backdrop" tabindex="-1"></div>
+      <div class="customer-edit-panel card form-block">
+        <h2 id="customer-edit-title">Edit customer</h2>
+        <form id="form-edit-customer" novalidate>
+          <p class="form-error" id="edit-customer-error" role="alert"></p>
+          <h3 class="h3-small">Buyer (Bill to)</h3>
+          <label>
+            Name
+            <input type="text" id="edit-cust-name" required maxlength="200" autocomplete="organization" />
+          </label>
+          <label>
+            Address
+            <textarea id="edit-cust-address" rows="3" required maxlength="1000"></textarea>
+          </label>
+          <label>
+            Phone
+            <input type="tel" id="edit-cust-phone" required maxlength="20" autocomplete="tel" />
+          </label>
+          <div class="inline-two">
+            <label>
+              State
+              <input type="text" id="edit-cust-state" maxlength="80" />
+            </label>
+            <label>
+              State code
+              <input type="text" id="edit-cust-state-code" maxlength="5" />
+            </label>
+          </div>
+          <label>
+            GSTIN (optional)
+            <input type="text" id="edit-cust-gstin" maxlength="15" />
+          </label>
+          <div class="inline-two">
+            <label>
+              PAN / IT No. (optional)
+              <input type="text" id="edit-cust-pan" maxlength="10" />
+            </label>
+            <label>
+              Place of supply (optional)
+              <input type="text" id="edit-cust-place" maxlength="120" />
+            </label>
+          </div>
+          <label>
+            Contact (optional)
+            <input type="text" id="edit-cust-contact" maxlength="80" />
+          </label>
+          <label>
+            Email (optional)
+            <input type="email" id="edit-cust-email" maxlength="120" />
+          </label>
+
+          <h3 class="h3-small">Consignee (Ship to)</h3>
+          <label class="check-row">
+            <input type="checkbox" id="edit-cust-consignee-same" checked />
+            Same as buyer (name &amp; address)
+          </label>
+          <div id="edit-cust-consignee-extra" class="hidden">
+            <label>
+              Consignee name
+              <input type="text" id="edit-cust-consignee-name" maxlength="200" />
+            </label>
+            <label>
+              Consignee address
+              <textarea id="edit-cust-consignee-address" rows="2" maxlength="1000"></textarea>
+            </label>
+            <div class="inline-two">
+              <label>
+                State
+                <input type="text" id="edit-cust-consignee-state" maxlength="80" />
+              </label>
+              <label>
+                State code
+                <input type="text" id="edit-cust-consignee-state-code" maxlength="5" />
+              </label>
+            </div>
+            <label>
+              Consignee GSTIN (optional)
+              <input type="text" id="edit-cust-consignee-gstin" maxlength="15" />
+            </label>
+            <div class="inline-two">
+              <label>
+                Consignee phone
+                <input type="tel" id="edit-cust-consignee-phone" maxlength="20" />
+              </label>
+              <label>
+                Consignee email (optional)
+                <input type="email" id="edit-cust-consignee-email" maxlength="120" />
+              </label>
+            </div>
+          </div>
+
+          <div class="btn-row wrap">
+            <button type="button" class="btn btn-secondary" id="btn-edit-customer-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-edit-customer-save">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- History -->
     <section id="view-history" class="view container" hidden>
@@ -452,6 +546,13 @@
   <footer class="app-footer muted small">
     Easy Billing — GST invoice helper
   </footer>
+
+  <div id="app-loading-overlay" class="app-loading-overlay hidden" aria-hidden="true" role="status">
+    <div class="app-loading-panel">
+      <div class="app-loading-spinner" aria-hidden="true"></div>
+      <p class="app-loading-text">Loading…</p>
+    </div>
+  </div>
 
   <script type="module" src="js/app.js"></script>
 </body>

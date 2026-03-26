@@ -61,40 +61,57 @@ function buildEInvoiceStrip(inv) {
   </div>`;
 }
 
-function buildMetaGridHtml(inv, dateStr) {
-  const cells = [];
-  const push = (k, v) => {
-    cells.push(
-      `<div class="inv-meta-cell"><span class="mk">${escapeHtml(k)}</span><span class="mv">${escapeHtml(v)}</span></div>`
-    );
-  };
-  const add = (k, val) => {
-    const v = nz(val);
-    if (v) push(k, v);
-  };
-  push("Invoice No.", nz(inv.invoiceNumber) || "—");
-  push("Dated", nz(dateStr) || "—");
-  add("e-Way Bill no.", inv.ewayBillNo);
-  add("Delivery Note", inv.deliveryNote);
-  add("Mode/Terms of Payment", inv.paymentTerms);
-  const refNo = nz(inv.referenceNo);
-  const refDt = nz(inv.referenceDate);
-  if (refNo || refDt) add("Reference No. & Date", [refNo, refDt].filter(Boolean).join(" · "));
-  add("Other References", inv.otherReferences);
-  add("Buyer's Order No.", inv.buyerOrderNo);
-  add("Dated (order)", inv.buyerOrderDate);
-  add("Dispatch Doc No.", inv.dispatchDocNo);
-  add("Delivery Note Date", inv.deliveryNoteDate);
-  add("Dispatched through", inv.dispatchedThrough);
-  add("Destination", inv.destination);
-  add("Bill of Lading / LR-RR No.", inv.billOfLadingNo);
-  add("Motor Vehicle No.", inv.motorVehicleNo);
-  add("Vessel/Flight No.", inv.vesselFlightNo);
-  add("Place of receipt by shipper", inv.placeReceiptShipper);
-  add("City/Port of Loading", inv.portLoading);
-  add("City/Port of Discharge", inv.portDischarge);
-  add("Terms of Delivery", inv.termsOfDelivery);
-  return `<div class="inv-meta-grid">${cells.join("")}</div>`;
+function metaCell(k, v, multiline, colspan) {
+  const raw = nz(v);
+  let inner;
+  if (!raw) {
+    inner = "—";
+  } else if (multiline) {
+    inner = escapeHtml(raw).replace(/\n/g, "<br />");
+  } else {
+    inner = escapeHtml(raw);
+  }
+  const cs = colspan && colspan > 1 ? ` colspan="${colspan}"` : "";
+  /* Inner div carries flex; td stays table-cell so the grid does not collapse into stacked boxes */
+  return `<td class="inv-meta-td"${cs}><div class="inv-meta-cell"><span class="mk">${escapeHtml(k)}</span><span class="mv">${inner}</span></div></td>`;
+}
+
+function bolCombinedStr(inv) {
+  const bolParts = [nz(inv.billOfLadingNo)];
+  if (nz(inv.billOfLadingDate)) bolParts.push(`Dt ${nz(inv.billOfLadingDate)}`);
+  return bolParts.filter(Boolean).join(" ").trim() || "—";
+}
+
+/** Single right-column grid: invoice / refs + shipping / dispatch (one continuous bordered block). */
+function buildMetaGridFullHtml(inv, dateStr) {
+  const refParts = [nz(inv.referenceNo), nz(inv.referenceDate)].filter(Boolean);
+  const refCombined = refParts.length ? refParts.join(" dt ") : "—";
+  const bolCombined = bolCombinedStr(inv);
+
+  /* 6 cols: row1 = three pairs; row2+ = two half-width fields (colspan 3 each) */
+  const r1 = `<tr>${metaCell("Invoice No.", inv.invoiceNumber || "—", false, 2)}${metaCell("e-Way Bill No.", inv.ewayBillNo, false, 2)}${metaCell("Dated", dateStr || "—", false, 2)}</tr>`;
+  const r2 = `<tr>${metaCell("Delivery Note", inv.deliveryNote, false, 3)}${metaCell("Mode / Terms of Payment", inv.paymentTerms, false, 3)}</tr>`;
+  const r3 = `<tr>${metaCell("Reference No. & Date", refCombined, false, 3)}${metaCell("Other References", inv.otherReferences, false, 3)}</tr>`;
+  const r4 = `<tr>${metaCell("Buyer's Order No.", inv.buyerOrderNo, false, 3)}${metaCell("Dated", inv.buyerOrderDate, false, 3)}</tr>`;
+  const r5 = `<tr>${metaCell("Dispatch Doc No.", inv.dispatchDocNo, false, 3)}${metaCell("Delivery Note Date", inv.deliveryNoteDate, false, 3)}</tr>`;
+  const r6 = `<tr>${metaCell("Dispatched through", inv.dispatchedThrough, false, 3)}${metaCell("Destination", inv.destination, false, 3)}</tr>`;
+  const r7 = `<tr>${metaCell("Bill of Lading / LR-RR No.", bolCombined, false, 3)}${metaCell("Motor Vehicle No.", inv.motorVehicleNo, false, 3)}</tr>`;
+  const termsRow = buildMetaTermsRow(inv);
+
+  return `<table class="inv-meta-print-table" role="presentation"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><tbody>${r1}${r2}${r3}${r4}${r5}${r6}${r7}${termsRow}</tbody></table>`;
+}
+
+function buildMetaTermsRow(inv) {
+  const raw = nz(inv.termsOfDelivery);
+  const inner = !raw ? "—" : escapeHtml(raw).replace(/\n/g, "<br />");
+  return `<tr class="inv-meta-terms-tr">
+    <td colspan="6" class="inv-meta-td inv-meta-terms-td">
+      <div class="inv-meta-terms-wrap">
+        <div class="inv-meta-terms-label">Terms of Delivery</div>
+        <div class="inv-meta-terms-value">${inner}</div>
+      </div>
+    </td>
+  </tr>`;
 }
 
 function hsnSummaryRows(inv) {
@@ -133,145 +150,175 @@ function buildItemsTableHtml(inv) {
   const rates = pct(inv);
   const cgstR = rates.cgst / 100;
   const sgstR = rates.sgst / 100;
+  let totalQty = 0;
+  let perUnit = "Kgs";
   const tbodies = items
     .map((it, i) => {
       const taxable = Number(it.amount) || 0;
       const cgstL = Math.round(taxable * cgstR * 100) / 100;
       const sgstL = Math.round(taxable * sgstR * 100) / 100;
       const sn = i + 1;
+      const qn = Number(it.quantity) || 0;
+      totalQty += qn;
+      if (nz(it.per)) perUnit = String(it.per).trim();
       return `<tbody class="inv-item-group">
 <tr class="inv-item-row inv-item-main">
   <td class="c-num" rowspan="3">${sn}</td>
   <td class="c-desc">${escapeHtml(it.name)}</td>
   <td class="c-hsn">${escapeHtml(it.hsn || "—")}</td>
-  <td class="num">${escapeHtml(String(it.quantity))}</td>
-  <td class="c-per">${escapeHtml(it.per || "Pcs")}</td>
+  <td class="num inv-bold-print">${escapeHtml(String(it.quantity))}</td>
   <td class="num">${formatMoney(it.rate)}</td>
-  <td class="num">${formatMoney(it.amount)}</td>
+  <td class="c-per">${escapeHtml(it.per || "Pcs")}</td>
+  <td class="num inv-bold-print">${formatMoney(it.amount)}</td>
 </tr>
 <tr class="inv-tax-sub">
-  <td colspan="5" class="c-tax-label">CGST ${rates.cgst}%</td>
-  <td class="num">${formatMoney(cgstL)}</td>
+  <td colspan="5" class="c-tax-label"><strong>CGST @ ${rates.cgst}%</strong></td>
+  <td class="num inv-bold-print">${formatMoney(cgstL)}</td>
 </tr>
 <tr class="inv-tax-sub">
-  <td colspan="5" class="c-tax-label">SGST ${rates.sgst}%</td>
-  <td class="num">${formatMoney(sgstL)}</td>
+  <td colspan="5" class="c-tax-label"><strong>SGST @ ${rates.sgst}%</strong></td>
+  <td class="num inv-bold-print">${formatMoney(sgstL)}</td>
 </tr>
 </tbody>`;
     })
     .join("");
-  return `
+  const qtyLabel = `${totalQty} ${perUnit}`.trim();
+  const tfoot = `<tfoot>
+<tr class="inv-grand-total-row">
+  <td colspan="3" class="c-total-label"><strong>Total</strong></td>
+  <td class="num inv-bold-print"><strong>${escapeHtml(qtyLabel)}</strong></td>
+  <td colspan="2"></td>
+  <td class="num inv-bold-print"><strong>${formatMoney(inv.total)}</strong></td>
+</tr>
+</tfoot>`;
+  return `<div class="inv-items-print-wrap">
 <table class="inv-print-table inv-items">
   <thead>
     <tr>
       <th class="c-num">Sl.</th>
       <th>Description of Goods</th>
       <th class="c-hsn">HSN/SAC</th>
-      <th class="num">Qty</th>
-      <th class="c-per">Per</th>
+      <th class="num">Quantity</th>
       <th class="num">Rate</th>
-      <th class="num">Amt</th>
+      <th class="c-per">Per</th>
+      <th class="num">Amount</th>
     </tr>
   </thead>
   ${tbodies}
-</table>`;
+  ${tfoot}
+</table>
+<p class="inv-eoe-below-items"><strong>E. &amp; O.E</strong></p>
+</div>`;
+}
+
+function partyKV(k, v) {
+  if (!nz(v)) return "";
+  return `<div class="inv-party-line"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-v">${escapeHtml(v)}</span></div>`;
+}
+
+function buildPartyBlockInner(p) {
+  const head = `<p class="inv-bn"><strong>${escapeHtml(p.name)}</strong></p><p class="inv-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />")}</p>`;
+  const kv = [];
+  kv.push(partyKV("Phone No.", p.phone));
+  if (nz(p.contactExtra)) kv.push(partyKV("Contact", p.contactExtra));
+  if (nz(p.email)) kv.push(partyKV("Email", p.email));
+  if (nz(p.gstin)) kv.push(partyKV("GSTIN/UIN", p.gstin));
+  if (nz(p.pan)) kv.push(partyKV("PAN / IT No.", p.pan));
+  if (nz(p.stateName) || nz(p.stateCode)) {
+    const sv = [nz(p.stateName), nz(p.stateCode) ? `Code: ${nz(p.stateCode)}` : ""].filter(Boolean).join(", ");
+    kv.push(partyKV("State Name", sv));
+  }
+  if (nz(p.placeOfSupply)) kv.push(partyKV("Place of supply", p.placeOfSupply));
+  return `${head}<div class="inv-party-kv">${kv.join("")}</div>`;
+}
+
+function partyBillTo(inv) {
+  return buildPartyBlockInner({
+    name: inv.customerName,
+    address: inv.buyerAddress,
+    phone: inv.buyerPhone,
+    contactExtra: inv.buyerContact,
+    email: inv.buyerEmail,
+    gstin: inv.buyerGstin,
+    pan: inv.buyerPan,
+    stateName: inv.buyerStateName,
+    stateCode: inv.buyerStateCode,
+    placeOfSupply: inv.placeOfSupply,
+  });
+}
+
+function partyShipTo(inv) {
+  if (inv.consigneeSameAsBuyer !== false) {
+    return partyBillTo(inv);
+  }
+  return buildPartyBlockInner({
+    name: inv.consigneeName,
+    address: inv.consigneeAddress,
+    phone: nz(inv.consigneePhone) ? inv.consigneePhone : inv.buyerPhone,
+    contactExtra: inv.buyerContact,
+    email: nz(inv.consigneeEmail) ? inv.consigneeEmail : inv.buyerEmail,
+    gstin: inv.consigneeGstin || inv.buyerGstin,
+    pan: inv.buyerPan,
+    stateName: inv.consigneeStateName || inv.buyerStateName,
+    stateCode: inv.consigneeStateCode || inv.buyerStateCode,
+    placeOfSupply: inv.placeOfSupply,
+  });
 }
 
 function buildHeaderAndBuyer(inv) {
   const dateStr = formatInvoiceDateNumeric(inv.date);
-  const sellerGst = inv.sellerGstin ? `GSTIN/UIN: ${escapeHtml(inv.sellerGstin)}` : "";
-  const sellerState =
+  const sellerPan = inv.sellerPan ? partyKV("PAN", inv.sellerPan) : "";
+  const sellerUdyam = inv.sellerUdyam ? partyKV("UDYAM", inv.sellerUdyam) : "";
+  const sellerContactX = inv.sellerContactExtra ? partyKV("Contact", inv.sellerContactExtra) : "";
+  const sellerEmailLine = inv.sellerEmail ? partyKV("Email", inv.sellerEmail) : "";
+  const sellerGstLine = inv.sellerGstin ? partyKV("GSTIN/UIN", inv.sellerGstin) : "";
+  const sellerStateLine =
     inv.sellerStateName || inv.sellerStateCode
-      ? `State: ${escapeHtml(inv.sellerStateName || "")}${inv.sellerStateCode ? `, Code: ${escapeHtml(inv.sellerStateCode)}` : ""}`
-      : "";
-  const sellerEmail = inv.sellerEmail ? `Email: ${escapeHtml(inv.sellerEmail)}` : "";
-  const sellerPan = inv.sellerPan ? `<p class="inv-line-tight"><strong>PAN:</strong> ${escapeHtml(inv.sellerPan)}</p>` : "";
-  const sellerUdyam = inv.sellerUdyam
-    ? `<p class="inv-line-tight"><strong>UDYAM:</strong> ${escapeHtml(inv.sellerUdyam)}</p>`
-    : "";
-  const sellerContactX = inv.sellerContactExtra
-    ? `<p class="inv-line-tight"><strong>Contact:</strong> ${escapeHtml(inv.sellerContactExtra)}</p>`
-    : "";
-
-  const buyerGst = inv.buyerGstin ? `GSTIN/UIN: ${escapeHtml(inv.buyerGstin)}` : "";
-  const buyerState =
-    inv.buyerStateName || inv.buyerStateCode
-      ? `State: ${escapeHtml(inv.buyerStateName || "")}${inv.buyerStateCode ? `, Code: ${escapeHtml(inv.buyerStateCode)}` : ""}`
-      : "";
-  const buyerPanLine = inv.buyerPan
-    ? `<p class="inv-line-tight"><strong>PAN/IT No.:</strong> ${escapeHtml(inv.buyerPan)}</p>`
-    : "";
-  const placeSup = inv.placeOfSupply
-    ? `<p class="inv-line-tight"><strong>Place of supply:</strong> ${escapeHtml(inv.placeOfSupply)}</p>`
-    : "";
-  const buyerContactLine = inv.buyerContact
-    ? `<p class="inv-line-tight"><strong>Contact:</strong> ${escapeHtml(inv.buyerContact)}</p>`
-    : "";
-
-  const consigneeGst =
-    inv.consigneeGstin && inv.consigneeSameAsBuyer === false
-      ? `GSTIN/UIN: ${escapeHtml(inv.consigneeGstin)}`
-      : "";
-  const consigneeState =
-    inv.consigneeSameAsBuyer === false && (inv.consigneeStateName || inv.consigneeStateCode)
-      ? `State: ${escapeHtml(inv.consigneeStateName || "")}${inv.consigneeStateCode ? `, Code: ${escapeHtml(inv.consigneeStateCode)}` : ""}`
+      ? partyKV(
+          "State Name",
+          [nz(inv.sellerStateName), nz(inv.sellerStateCode) ? `Code: ${nz(inv.sellerStateCode)}` : ""]
+            .filter(Boolean)
+            .join(", ")
+        )
       : "";
 
-  const consigneeBlock =
-    inv.consigneeSameAsBuyer !== false
-      ? `<div class="inv-block">
-          <div class="block-label">Consignee (Ship to)</div>
-          <p class="inv-note">Same as Bill to</p>
-        </div>`
-      : `<div class="inv-block">
-          <div class="block-label">Consignee (Ship to)</div>
-          <p class="inv-bn"><strong>${escapeHtml(inv.consigneeName || "")}</strong></p>
-          <p class="inv-addr">${escapeHtml(inv.consigneeAddress || "").replace(/\n/g, "<br />")}</p>
-          ${consigneeGst ? `<p class="inv-line-tight">${consigneeGst}</p>` : ""}
-          ${consigneeState ? `<p class="inv-line-tight">${consigneeState}</p>` : ""}
-        </div>`;
-
-  const subLine = inv.sellerSubtitle
-    ? `<p class="inv-subtitle">${escapeHtml(inv.sellerSubtitle)}</p>`
-    : "";
+  const subLine = inv.sellerSubtitle ? `<p class="inv-subtitle">${escapeHtml(inv.sellerSubtitle)}</p>` : "";
 
   return `${buildTopTitle()}${buildEInvoiceStrip(inv)}
-    <div class="inv-header-row">
-      <div class="inv-seller">
-        <p class="inv-co-name"><strong>${escapeHtml(inv.sellerName)}</strong></p>
-        ${subLine}
-        <p class="inv-addr">${escapeHtml(inv.sellerAddress).replace(/\n/g, "<br />")}</p>
-        <p class="inv-line-tight">Ph: ${escapeHtml(inv.sellerPhone)}</p>
-        ${sellerContactX}
-        ${sellerEmail ? `<p class="inv-line-tight">${sellerEmail}</p>` : ""}
-        ${sellerPan}
-        ${sellerUdyam}
-        ${sellerGst ? `<p class="inv-line-tight">${sellerGst}</p>` : ""}
-        ${sellerState ? `<p class="inv-line-tight">${sellerState}</p>` : ""}
+    <div class="inv-main-bill-split">
+      <div class="inv-main-bill-left">
+        <div class="inv-seller">
+          <p class="inv-co-name"><strong>${escapeHtml(inv.sellerName)}</strong></p>
+          ${subLine}
+          <p class="inv-addr">${escapeHtml(inv.sellerAddress).replace(/\n/g, "<br />")}</p>
+          <div class="inv-party-kv">
+            ${partyKV("Phone No.", inv.sellerPhone)}
+            ${sellerContactX}
+            ${sellerEmailLine}
+            ${sellerGstLine}
+            ${sellerStateLine}
+            ${sellerPan}
+            ${sellerUdyam}
+          </div>
+        </div>
+        <div class="inv-mid-left">
+          <div class="inv-block">
+            <div class="block-label">Consignee (Ship to)</div>
+            ${partyShipTo(inv)}
+          </div>
+          <div class="inv-block">
+            <div class="block-label">Buyer (Bill to)</div>
+            ${partyBillTo(inv)}
+          </div>
+        </div>
       </div>
-      <div class="inv-meta">
-        ${buildMetaGridHtml(inv, dateStr)}
-      </div>
-    </div>
-
-    <div class="inv-two-col">
-      ${consigneeBlock}
-      <div class="inv-block">
-        <div class="block-label">Buyer (Bill to)</div>
-        <p class="inv-bn"><strong>${escapeHtml(inv.customerName)}</strong></p>
-        <p class="inv-addr">${escapeHtml(inv.buyerAddress).replace(/\n/g, "<br />")}</p>
-        <p class="inv-line-tight">Ph: ${escapeHtml(inv.buyerPhone)}</p>
-        ${buyerContactLine}
-        ${buyerGst ? `<p class="inv-line-tight">${buyerGst}</p>` : ""}
-        ${buyerPanLine}
-        ${buyerState ? `<p class="inv-line-tight">${buyerState}</p>` : ""}
-        ${placeSup}
+      <div class="inv-main-bill-right">
+        ${buildMetaGridFullHtml(inv, dateStr)}
       </div>
     </div>`;
 }
 
 function buildFooterBlock(inv) {
-  const rates = pct(inv);
   const words = amountToWordsIn(inv.total);
   const taxTotal = (Number(inv.cgst) || 0) + (Number(inv.sgst) || 0);
   const taxWords = amountToWordsIn(taxTotal);
@@ -283,12 +330,13 @@ function buildFooterBlock(inv) {
   const balanceSide =
     hasPrev || hasCurr
       ? `<div class="inv-balance-side">
-          ${hasPrev ? `<div><strong>Previous balance:</strong> ₹ ${formatMoney(prev)} Dr</div>` : ""}
-          ${hasCurr ? `<div><strong>Current balance:</strong> ₹ ${formatMoney(curr)} Dr</div>` : ""}
+          ${hasPrev ? `<div class="inv-prev-balance-line"><strong>Previous balance: ₹ ${formatMoney(prev)} Dr</strong></div>` : ""}
+          ${hasCurr ? `<div class="inv-balance-current"><strong>Current balance:</strong> ₹ ${formatMoney(curr)} Dr</div>` : ""}
         </div>`
       : "";
 
-  const hsnRows = hsnSummaryRows(inv)
+  const hsnRowData = hsnSummaryRows(inv);
+  const hsnRows = hsnRowData
     .map(
       (r) => `
     <tr>
@@ -302,10 +350,28 @@ function buildFooterBlock(inv) {
     </tr>`
     )
     .join("");
+  const hsnSumTaxable = hsnRowData.reduce((a, r) => a + r.taxable, 0);
+  const hsnSumCgst = hsnRowData.reduce((a, r) => a + r.cgstAmt, 0);
+  const hsnSumSgst = hsnRowData.reduce((a, r) => a + r.sgstAmt, 0);
+  const hsnSumTax = hsnRowData.reduce((a, r) => a + r.taxTot, 0);
+  const hsnTfoot =
+    hsnRowData.length > 0
+      ? `<tfoot>
+<tr class="inv-hsn-total-row">
+  <td><strong>Total</strong></td>
+  <td class="num inv-bold-print"><strong>${formatMoney(hsnSumTaxable)}</strong></td>
+  <td class="num"></td>
+  <td class="num inv-bold-print"><strong>${formatMoney(hsnSumCgst)}</strong></td>
+  <td class="num"></td>
+  <td class="num inv-bold-print"><strong>${formatMoney(hsnSumSgst)}</strong></td>
+  <td class="num inv-bold-print"><strong>${formatMoney(hsnSumTax)}</strong></td>
+</tr>
+</tfoot>`
+      : "";
 
-  const terms = inv.invoiceTerms
+  const termsBlock = inv.invoiceTerms
     ? `<div class="inv-terms"><div class="block-label">Declaration</div><pre class="inv-terms-pre">${escapeHtml(inv.invoiceTerms)}</pre></div>`
-    : "";
+    : `<div class="inv-terms"><div class="block-label">Declaration</div><pre class="inv-terms-pre">—</pre></div>`;
 
   const bankHolder = inv.accountHolderName
     ? `<div><strong>A/c Holder&apos;s Name:</strong> ${escapeHtml(inv.accountHolderName)}</div>`
@@ -324,50 +390,44 @@ function buildFooterBlock(inv) {
 
   return `
     <div class="inv-pdf-footer-block">
-    <div class="inv-totals-balance-row">
-    <div class="inv-totals-wrap">
-      <div class="inv-totals">
-        <div class="row"><span>Taxable</span><span>${formatMoney(inv.subtotal)}</span></div>
-        <div class="row"><span>CGST (${rates.cgst}%)</span><span>${formatMoney(inv.cgst)}</span></div>
-        <div class="row"><span>SGST (${rates.sgst}%)</span><span>${formatMoney(inv.sgst)}</span></div>
-        <div class="row total"><span>Total</span><span>₹ ${formatMoney(inv.total)}</span></div>
-      </div>
-    </div>
+    <div class="inv-totals-balance-row inv-words-balance-row">
+    <p class="words-line inv-words-chargeable"><span class="inv-words-main"><strong>Amount chargeable (in words):</strong> <strong class="inv-words-amount">${escapeHtml(words)}</strong></span></p>
     ${balanceSide}
     </div>
 
-    <p class="words-line inv-words-eoe"><span class="inv-words-main"><strong>Amount chargeable (in words):</strong> ${escapeHtml(words)}</span><span class="inv-eoe"><strong>E. &amp; O.E</strong></span></p>
-
     <table class="inv-print-table inv-hsn-sum">
-      <caption class="block-label">Tax breakdown</caption>
+      <caption class="block-label">GST tax analysis</caption>
       <thead>
         <tr>
-          <th>HSN</th>
-          <th class="num">Taxable</th>
-          <th class="num">CGST%</th>
-          <th class="num">CGST</th>
-          <th class="num">SGST/UTGST%</th>
-          <th class="num">SGST/UTGST</th>
-          <th class="num">Tax</th>
+          <th>HSN/SAC</th>
+          <th class="num">Taxable value</th>
+          <th class="num">CGST %</th>
+          <th class="num">CGST Amt</th>
+          <th class="num">SGST/UTGST %</th>
+          <th class="num">SGST/UTGST Amt</th>
+          <th class="num">Total tax</th>
         </tr>
       </thead>
       <tbody>${hsnRows || `<tr><td colspan="7" class="num">—</td></tr>`}</tbody>
+      ${hsnTfoot}
     </table>
 
-    <p class="words-line words-tax"><strong>Tax amount (in words):</strong> ${escapeHtml(taxWords)}</p>
+    <p class="words-line words-tax"><strong>Tax amount (in words):</strong> <strong class="inv-tax-words-amount">${escapeHtml(taxWords)}</strong></p>
 
     ${footerPan}
 
     <div class="inv-bank-terms">
+      <div class="inv-footer-decl-col">${termsBlock}</div>
+      <div class="inv-footer-bank-col">
       <div class="inv-bank">
-        <div class="block-label">Bank details</div>
+        <div class="block-label">Company&apos;s bank details</div>
         ${bankHolder}
         ${inv.bankName ? `<div><strong>${escapeHtml(inv.bankName)}</strong></div>` : ""}
         ${bankBranch}
         ${inv.bankAccount ? `<div><strong>A/c No.:</strong> ${escapeHtml(inv.bankAccount)}</div>` : ""}
         ${inv.bankIfsc ? `<div><strong>IFSC:</strong> ${escapeHtml(inv.bankIfsc)}</div>` : ""}
       </div>
-      ${terms}
+      </div>
     </div>
 
     <div class="inv-sign-row">
