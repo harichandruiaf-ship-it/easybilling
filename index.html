@@ -451,6 +451,20 @@
     <section id="view-customers" class="view container" hidden>
       <h1>Customers</h1>
       <p class="muted">Saved buyers — select them when creating an invoice.</p>
+      <div class="page-toolbar">
+        <label class="page-search-label">
+          Search customers
+          <input
+            type="search"
+            id="customers-search"
+            class="page-search-input"
+            placeholder="Name, phone, GSTIN, address…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Search customers"
+          />
+        </label>
+      </div>
       <p class="muted" id="customers-empty">No customers yet. Create an invoice and save a new buyer.</p>
       <ul class="invoice-list" id="customers-list"></ul>
     </section>
@@ -623,6 +637,20 @@
       <p class="muted">Search and filter invoices saved to your account.</p>
 
       <form id="form-history-filters" class="card history-filters" novalidate>
+        <div class="history-quick-search">
+          <label class="history-quick-search-label">
+            Search invoices
+            <input
+              type="search"
+              id="hist-search"
+              class="history-quick-search-input"
+              placeholder="Invoice no., customer, GSTIN, reference, HSN…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Search invoices"
+            />
+          </label>
+        </div>
         <div class="history-filters-head">
           <h2 class="history-filters-heading">Filters</h2>
           <label class="history-filter-mode">

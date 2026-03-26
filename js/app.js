@@ -140,6 +140,53 @@ function includesTaxId(hay, needle) {
   return normTaxId(hay).includes(normTaxId(needle));
 }
 
+/** Multi-word AND: every token must appear as substring in the normalized blob. */
+function matchesSearchTokens(blob, raw) {
+  const q = normLower(raw).trim();
+  if (!q) return true;
+  const b = normLower(blob);
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => b.includes(t));
+}
+
+function customerSearchBlob(row) {
+  return [
+    row.name,
+    row.phone,
+    row.address,
+    row.gstin,
+    row.buyerPan,
+    row.placeOfSupply,
+    row.buyerContact,
+    row.buyerEmail,
+    row.stateName,
+    row.stateCode,
+    row.consigneeName,
+    row.consigneeAddress,
+    row.consigneeGstin,
+  ].join(" ");
+}
+
+function historyQuickSearchBlob(row) {
+  return [
+    row.invoiceNumber,
+    row.customerName,
+    row.consigneeName,
+    row.referenceNo,
+    row.buyerGstin,
+    row.buyerPan,
+    row.placeOfSupply,
+    row.buyerAddress,
+    row.destination,
+    row.deliveryNote,
+    row.paymentStatus,
+    row.paymentMethod,
+    row.hsnSearchBlob,
+    row.sellerGstin,
+    row.sellerPan,
+  ].join(" ");
+}
+
 function filterHistoryRows(rows, c) {
   const range = historyDateRange(c);
   return rows.filter((row) => {
@@ -148,7 +195,7 @@ function filterHistoryRows(rows, c) {
       if (!d) return false;
       if (d.getTime() < range.start.getTime() || d.getTime() > range.end.getTime()) return false;
     }
-    const customerBlob = [row.customerName, row.consigneeName].filter(Boolean).join(" ");
+    if (!matchesSearchTokens(historyQuickSearchBlob(row), c.quickSearch || "")) return false;
     if (c.customer) {
       const target = normLower(c.customer);
       const buyer = normLower(row.customerName);
@@ -203,6 +250,7 @@ function readHistoryCriteria() {
     amountMax: document.getElementById("hist-amount-max")?.value ?? "",
     paymentStatus: document.getElementById("hist-payment-status")?.value || "",
     paymentMethod: document.getElementById("hist-payment-method")?.value || "",
+    quickSearch: v("hist-search"),
   };
 }
 
@@ -230,6 +278,7 @@ function clearHistoryFiltersForm() {
     "hist-amount-max",
     "hist-payment-status",
     "hist-payment-method",
+    "hist-search",
   ];
   ids.forEach((id) => {
     const el = document.getElementById(id);
@@ -398,6 +447,11 @@ let editingCustomerId = null;
 
 /** Customers page: record-payment modal target id */
 let paymentCustomerId = null;
+
+/** Full customer list for the Customers tab (client-side search). */
+let customersPageCache = null;
+let customersSearchWired = false;
+let customersSearchDebounce = null;
 
 /** Filled when the Customers page loads; used by the “Show invoices” modal. */
 let customerInvoicesByCustomerIdCache = new Map();
@@ -1363,34 +1417,40 @@ function setupCustomerInvoicesModal() {
   });
 }
 
-async function renderCustomersPage() {
+function wireCustomersSearch() {
+  if (customersSearchWired) return;
+  customersSearchWired = true;
+  const input = document.getElementById("customers-search");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    clearTimeout(customersSearchDebounce);
+    customersSearchDebounce = setTimeout(() => {
+      customersSearchDebounce = null;
+      renderCustomersListFromCache();
+    }, 220);
+  });
+}
+
+function renderCustomersListFromCache() {
   const listEl = document.getElementById("customers-list");
   const emptyEl = document.getElementById("customers-empty");
+  if (!listEl || !emptyEl) return;
   listEl.innerHTML = "";
-  if (!currentUser) return;
-
-  let rows;
-  let invoiceRows = [];
-  try {
-    [rows, invoiceRows] = await Promise.all([
-      listCustomers(db, currentUser.uid),
-      listInvoicesForUser(db, currentUser.uid).catch(() => []),
-    ]);
-  } catch (ex) {
+  const all = customersPageCache;
+  if (!all || !all.length) {
     emptyEl.hidden = false;
-    emptyEl.textContent =
-      ex.message ||
-      "Could not load customers. Check Firestore rules for the customers collection.";
+    emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
     return;
   }
-  const byCustomer = groupInvoicesByCustomerId(invoiceRows);
-  customerInvoicesByCustomerIdCache = byCustomer;
-  emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
+  const q = document.getElementById("customers-search")?.value ?? "";
+  const rows = all.filter((row) => matchesSearchTokens(customerSearchBlob(row), q));
   if (!rows.length) {
     emptyEl.hidden = false;
+    emptyEl.textContent = "No customers match your search.";
     return;
   }
   emptyEl.hidden = true;
+  emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
   for (const row of rows) {
     const li = document.createElement("li");
     li.className = "customer-row";
@@ -1457,6 +1517,36 @@ async function renderCustomersPage() {
       }
     });
   });
+}
+
+async function renderCustomersPage() {
+  const listEl = document.getElementById("customers-list");
+  const emptyEl = document.getElementById("customers-empty");
+  if (listEl) listEl.innerHTML = "";
+  if (!currentUser) return;
+
+  let rows;
+  let invoiceRows = [];
+  try {
+    [rows, invoiceRows] = await Promise.all([
+      listCustomers(db, currentUser.uid),
+      listInvoicesForUser(db, currentUser.uid).catch(() => []),
+    ]);
+  } catch (ex) {
+    customersPageCache = null;
+    if (emptyEl) {
+      emptyEl.hidden = false;
+      emptyEl.textContent =
+        ex.message ||
+        "Could not load customers. Check Firestore rules for the customers collection.";
+    }
+    return;
+  }
+  const byCustomer = groupInvoicesByCustomerId(invoiceRows);
+  customerInvoicesByCustomerIdCache = byCustomer;
+  customersPageCache = rows;
+  wireCustomersSearch();
+  renderCustomersListFromCache();
 }
 
 async function renderHistory() {

@@ -822,6 +822,99 @@ h1 {
   margin: 0.35rem 0 0.75rem;
 }
 
+/* Search bars (Customers + History) — shared field chrome */
+.page-toolbar {
+  margin: 0.5rem 0 1.25rem;
+  max-width: 32rem;
+}
+
+.page-search-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.page-search-input,
+.history-quick-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem 0.55rem 2.65rem;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.35;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' stroke='%235c6562' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='M13 13 17 17'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.8rem 50%;
+  background-size: 1.1rem;
+  box-shadow: var(--shadow);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.page-search-input::placeholder,
+.history-quick-search-input::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.page-search-input:hover,
+.history-quick-search-input:hover {
+  border-color: #c5cfc9;
+}
+
+.page-search-input:focus,
+.history-quick-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow:
+    var(--shadow),
+    0 0 0 3px rgba(26, 95, 74, 0.22);
+  background-color: #fff;
+}
+
+.history-quick-search {
+  margin: 0 0 1.1rem;
+  padding: 1rem 1.05rem 1.1rem;
+  background: linear-gradient(165deg, rgba(26, 95, 74, 0.07) 0%, rgba(26, 95, 74, 0.02) 100%);
+  border: 1px solid rgba(26, 95, 74, 0.14);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.history-quick-search-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.history-quick-search-input {
+  max-width: none;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.history-quick-search-input:focus {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 3px rgba(26, 95, 74, 0.22);
+}
+
 .history-filters {
   margin: 1rem 0 1.25rem;
   padding: 1rem 1.15rem 1.1rem;
