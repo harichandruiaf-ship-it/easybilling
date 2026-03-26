@@ -11,10 +11,17 @@ import {
 } from "./auth.js";
 import {
   saveInvoice,
+  updateInvoice,
+  deleteInvoice,
+  deleteInvoiceDocumentOnly,
   listInvoicesForUser,
   getInvoiceById,
   formatInvoiceDate,
+  formatInvoiceDateTime,
+  computeInvoicePaymentAmounts,
+  round2,
 } from "./invoices.js";
+import { recordCustomerPayment, listMoneyTransactionsForCustomer } from "./payments.js";
 import { initInvoiceForm, isValidGstinOptional, isValidPanOptional } from "./invoice-form.js";
 import { renderInvoiceDocument, printInvoice } from "./invoice-pdf.js";
 import { shouldForceLoginView, canAccessInvoice } from "./auth-guard.js";
@@ -25,8 +32,9 @@ import {
   deleteCustomer,
   getCustomerById,
 } from "./customers.js";
-import { withLoading } from "./loading.js";
+import { withLoading, showLoading, hideLoading } from "./loading.js";
 import { showToast } from "./toast.js";
+import { mountDashboard, closeDashboardDetail } from "./dashboard.js";
 
 const app = initializeApp(firebaseConfig);
 const { auth, db } = initAuthServices(app);
@@ -151,6 +159,8 @@ function filterHistoryRows(rows, c) {
     const max = c.amountMax;
     if (min !== "" && min != null && Number.isFinite(Number(min)) && row.total < Number(min)) return false;
     if (max !== "" && max != null && Number.isFinite(Number(max)) && row.total > Number(max)) return false;
+    if (c.paymentStatus && String(row.paymentStatus || "") !== c.paymentStatus) return false;
+    if (c.paymentMethod && String(row.paymentMethod || "") !== c.paymentMethod) return false;
     if (c.mode === "advanced") {
       if (!includesLoose(row.invoiceNumber, c.invoiceNo)) return false;
       if (!includesTaxId(row.buyerGstin, c.buyerGstin)) return false;
@@ -191,6 +201,8 @@ function readHistoryCriteria() {
     deliveryNote: v("hist-delivery-note"),
     amountMin: document.getElementById("hist-amount-min")?.value ?? "",
     amountMax: document.getElementById("hist-amount-max")?.value ?? "",
+    paymentStatus: document.getElementById("hist-payment-status")?.value || "",
+    paymentMethod: document.getElementById("hist-payment-method")?.value || "",
   };
 }
 
@@ -216,6 +228,8 @@ function clearHistoryFiltersForm() {
     "hist-delivery-note",
     "hist-amount-min",
     "hist-amount-max",
+    "hist-payment-status",
+    "hist-payment-method",
   ];
   ids.forEach((id) => {
     const el = document.getElementById(id);
@@ -310,6 +324,20 @@ function wireHistoryFilters() {
   toggleHistoryCustomDateVisibility();
 }
 
+function historyPaymentStatusBadge(status) {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "paid") {
+    return { label: "Paid", mod: "history-inv-status--paid" };
+  }
+  if (s === "partial") {
+    return { label: "Partial", mod: "history-inv-status--partial" };
+  }
+  if (s === "unpaid") {
+    return { label: "Unpaid", mod: "history-inv-status--unpaid" };
+  }
+  return { label: "Unknown", mod: "history-inv-status--unknown" };
+}
+
 function renderHistoryListRows(rows) {
   const listEl = document.getElementById("history-list");
   const emptyEl = document.getElementById("history-empty");
@@ -338,8 +366,10 @@ function renderHistoryListRows(rows) {
     const li = document.createElement("li");
     const a = document.createElement("a");
     a.href = `#/invoice/${row.id}`;
+    a.classList.add("history-inv-card");
     const dateStr = formatInvoiceDate(row.date);
-    a.innerHTML = `<strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}<div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${Number(row.total).toFixed(2)}</span></div>`;
+    const badge = historyPaymentStatusBadge(row.paymentStatus);
+    a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Payment status: ${escapeHtml(badge.label)}">${escapeHtml(badge.label)}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}</span><div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${Number(row.total).toFixed(2)}</span></div>`;
     li.appendChild(a);
     listEl.appendChild(li);
   }
@@ -358,8 +388,19 @@ let invoiceFormApi = null;
 /** Form payload waiting for user to confirm in preview modal */
 let pendingInvoicePayload = null;
 
+/** When set, create flow updates this invoice instead of saving a new one */
+let editingInvoiceId = null;
+/** Snapshot of the invoice being edited (for preview balance math) */
+let editingInvoiceSnapshot = null;
+
 /** Customers page: Firestore id being edited in the modal */
 let editingCustomerId = null;
+
+/** Customers page: record-payment modal target id */
+let paymentCustomerId = null;
+
+/** Filled when the Customers page loads; used by the “Show invoices” modal. */
+let customerInvoicesByCustomerIdCache = new Map();
 
 function hideAllViews() {
   Object.values(views).forEach((el) => {
@@ -381,19 +422,50 @@ function parseHash() {
   const id = parts[1] || null;
   const params = new URLSearchParams(queryPart || "");
   const customerId = params.get("customer") || null;
-  return { route, id, customerId };
+  const editId = (params.get("edit") || "").trim() || null;
+  return { route, id, customerId, editId };
+}
+
+function setCreatePageEditMode(isEdit, invoiceNumberHint) {
+  const h1 = document.getElementById("create-page-title");
+  if (h1) h1.textContent = isEdit ? "Edit invoice" : "Create invoice";
+  const hint = document.getElementById("create-page-hint");
+  if (hint) {
+    hint.hidden = !isEdit;
+    hint.textContent = isEdit
+      ? `Editing ${invoiceNumberHint || "invoice"}. Invoice number and date are unchanged.`
+      : "";
+  }
+  const btn = document.getElementById("btn-save-invoice");
+  if (btn) btn.textContent = isEdit ? "Preview changes" : "Preview invoice";
+  const ph = document.getElementById("invoice-preview-hint");
+  if (ph) {
+    ph.textContent = isEdit
+      ? "Check changes. Saving updates the invoice and adjusts customer outstanding balance."
+      : "Check all details. Invoice number and official date are assigned when you generate the invoice.";
+  }
+  const btnGen = document.getElementById("btn-invoice-generate");
+  if (btnGen) btnGen.textContent = isEdit ? "Save changes" : "Generate invoice";
 }
 
 async function route() {
-  const { route: r, id, customerId } = parseHash();
+  const { route: r, id, customerId, editId } = parseHash();
+
+  if (r !== "dashboard") {
+    closeDashboardDetail();
+  }
 
   if (r !== "create") {
     closeInvoicePreviewModal();
     pendingInvoicePayload = null;
+    editingInvoiceId = null;
+    editingInvoiceSnapshot = null;
   }
 
   if (r !== "customers") {
     closeCustomerEditModal();
+    closeCustomerPaymentModal();
+    closeCustomerInvoicesModal();
   }
 
   if (shouldForceLoginView(currentUser)) {
@@ -427,17 +499,44 @@ async function route() {
       await withLoading(async () => {
         const s = await loadUserSettings(currentUser.uid);
         invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
-        try {
-          const list = await listCustomers(db, currentUser.uid);
-          invoiceFormApi.setCustomerOptions(list);
-          if (customerId && list.some((c) => c.id === customerId)) {
-            await invoiceFormApi.selectCustomerById(customerId);
+        const list = await listCustomers(db, currentUser.uid);
+        invoiceFormApi.setCustomerOptions(list);
+
+        if (editId) {
+          const inv = await getInvoiceById(db, editId);
+          if (!inv || inv.userId !== currentUser.uid) {
+            showToast("Invoice not found.", { type: "error" });
+            editingInvoiceId = null;
+            editingInvoiceSnapshot = null;
+            window.location.hash = "#/history";
+            return;
           }
-        } catch (e) {
-          console.error(e);
+          editingInvoiceId = editId;
+          editingInvoiceSnapshot = inv;
+          const oldNet = round2(Number(inv.total) || 0) - round2(Number(inv.amountPaidOnInvoice) || 0);
+          let openingBefore = null;
+          if (inv.customerId) {
+            const c = await getCustomerById(db, inv.customerId);
+            const b = round2(Number(c?.outstandingBalance) || 0);
+            openingBefore = round2(b - oldNet);
+          }
+          invoiceFormApi.populateFromInvoice(inv, { openingBeforeInvoice: openingBefore });
+          setCreatePageEditMode(true, inv.invoiceNumber);
+        } else {
+          editingInvoiceId = null;
+          editingInvoiceSnapshot = null;
+          invoiceFormApi.resetForm();
+          setCreatePageEditMode(false);
+          try {
+            if (customerId && list.some((c) => c.id === customerId)) {
+              await invoiceFormApi.selectCustomerById(customerId);
+            }
+          } catch (_) {
+            /* ignore customer load failure */
+          }
+          invoiceFormApi.ensureOneRow();
+          invoiceFormApi.recalcTotals();
         }
-        invoiceFormApi.ensureOneRow();
-        invoiceFormApi.recalcTotals();
       }, "Loading…");
     }
     return;
@@ -456,6 +555,9 @@ async function route() {
   }
 
   showView("dashboard");
+  if (currentUser) {
+    await withLoading(() => mountDashboard(db, currentUser.uid), "Loading dashboard…");
+  }
 }
 
 function isConfigPlaceholder() {
@@ -594,7 +696,9 @@ function firestorePermissionHint(ex) {
   const code = ex && ex.code;
   const msg = (ex && ex.message) || "";
   if (code === "permission-denied" || msg.includes("insufficient permissions")) {
-    return "Firestore blocked this (rules). In Firebase: Firestore Database → Rules → paste rules from FIREBASE_SETUP.md or firestore.rules → Publish.";
+    const pid = firebaseConfig.projectId || "your-project";
+    const rulesUrl = `https://console.firebase.google.com/project/${pid}/firestore/rules`;
+    return `Permission denied — Firestore rules are missing or not published for project “${pid}”. Open Rules, paste all of firestore.rules, click Publish: ${rulesUrl}`;
   }
   return "";
 }
@@ -649,6 +753,8 @@ function customerPayloadFromInvoice(p) {
 function closeInvoicePreviewModal() {
   const modal = document.getElementById("invoice-preview-modal");
   const scroll = document.getElementById("invoice-preview-scroll");
+  const previewErr = document.getElementById("invoice-preview-error");
+  if (previewErr) previewErr.textContent = "";
   if (modal) {
     modal.classList.add("hidden");
     modal.setAttribute("aria-hidden", "true");
@@ -675,17 +781,25 @@ function setupInvoicePreviewModal() {
   }
 
   btnGen.addEventListener("click", async () => {
-    if (!pendingInvoicePayload || !currentUser) return;
+    const previewErr = document.getElementById("invoice-preview-error");
     const errEl = document.getElementById("invoice-form-error");
-    errEl.textContent = "";
+    if (previewErr) previewErr.textContent = "";
+    if (errEl) errEl.textContent = "";
+
+    if (!pendingInvoicePayload || !currentUser) {
+      showToast("Preview expired. Close and use Preview invoice again.", { type: "error" });
+      return;
+    }
     const payload = pendingInvoicePayload;
 
+    btnGen.disabled = true;
     try {
       await withLoading(async () => {
-        if (!payload.selectedCustomerId) {
-          await addCustomer(db, currentUser.uid, customerPayloadFromInvoice(payload));
-        } else if (payload.selectedCustomerId) {
-          await updateCustomer(db, payload.selectedCustomerId, customerPayloadFromInvoice(payload));
+        let customerId = (payload.selectedCustomerId || "").trim();
+        if (!customerId) {
+          customerId = await addCustomer(db, currentUser.uid, customerPayloadFromInvoice(payload));
+        } else {
+          await updateCustomer(db, customerId, customerPayloadFromInvoice(payload));
         }
 
         const seller = await loadUserSettings(currentUser.uid);
@@ -694,36 +808,64 @@ function setupInvoicePreviewModal() {
         }
 
         const full = mergeSellerIntoInvoicePayload(payload, seller);
+        full.customerId = customerId;
         delete full.selectedCustomerId;
 
-        const { id, invoiceNumber } = await saveInvoice(db, currentUser.uid, full);
-        pendingInvoicePayload = null;
-        closeInvoicePreviewModal();
+        const isEdit = Boolean(editingInvoiceId);
+        if (isEdit) {
+          const savedId = editingInvoiceId;
+          const { invoiceNumber } = await updateInvoice(db, currentUser.uid, savedId, full);
+          pendingInvoicePayload = null;
+          closeInvoicePreviewModal();
+          editingInvoiceId = null;
+          editingInvoiceSnapshot = null;
+          invoiceFormApi.resetForm();
+          setCreatePageEditMode(false);
+          if (currentUser) {
+            try {
+              const list = await listCustomers(db, currentUser.uid);
+              invoiceFormApi.setCustomerOptions(list);
+            } catch (_) {}
+            const s = await loadUserSettings(currentUser.uid);
+            invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
+          }
+          showToast(`Invoice ${invoiceNumber} updated.`);
+          window.location.hash = `#/invoice/${savedId}`;
+        } else {
+          const { id, invoiceNumber } = await saveInvoice(db, currentUser.uid, full);
+          pendingInvoicePayload = null;
+          closeInvoicePreviewModal();
 
-        invoiceFormApi.resetForm();
-        if (currentUser) {
-          try {
-            const list = await listCustomers(db, currentUser.uid);
-            invoiceFormApi.setCustomerOptions(list);
-          } catch (_) {}
-          const s = await loadUserSettings(currentUser.uid);
-          invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
+          invoiceFormApi.resetForm();
+          if (currentUser) {
+            try {
+              const list = await listCustomers(db, currentUser.uid);
+              invoiceFormApi.setCustomerOptions(list);
+            } catch (_) {}
+            const s = await loadUserSettings(currentUser.uid);
+            invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
+          }
+          showToast(`Invoice ${invoiceNumber} saved successfully.`);
+          window.location.hash = `#/invoice/${id}`;
         }
-        showToast(`Invoice ${invoiceNumber} saved successfully.`);
-        window.location.hash = `#/invoice/${id}`;
-      }, "Saving invoice…");
+      }, editingInvoiceId ? "Saving changes…" : "Saving invoice…");
     } catch (ex) {
+      const msg =
+        ex.message === "SELLER_INCOMPLETE"
+          ? "Complete Seller settings before creating an invoice."
+          : firestorePermissionHint(ex) || ex.message || "Could not save invoice.";
+      const detail =
+        ex.code === "failed-precondition"
+          ? `${msg} If this mentions an index, open the link in the browser console to create it.`
+          : msg;
       if (ex.message === "SELLER_INCOMPLETE") {
-        errEl.textContent = "Complete Seller settings before creating an invoice.";
         window.location.hash = "#/settings";
-        return;
       }
-      errEl.textContent =
-        firestorePermissionHint(ex) || ex.message || "Could not save invoice.";
-      if (ex.code === "failed-precondition") {
-        errEl.textContent +=
-          " If this mentions an index, open the link in the browser console to create it.";
-      }
+      if (previewErr) previewErr.textContent = detail;
+      if (errEl) errEl.textContent = detail;
+      showToast(detail, { type: "error" });
+    } finally {
+      btnGen.disabled = false;
     }
   });
 
@@ -739,34 +881,91 @@ function setupInvoiceForm() {
     loadCustomer: (id) => getCustomerById(db, id),
     onPreview: async (payload) => {
       const errEl = document.getElementById("invoice-form-error");
-      errEl.textContent = "";
+      if (errEl) errEl.textContent = "";
+      pendingInvoicePayload = null;
       if (!currentUser) return;
 
-      const seller = await withLoading(
-        () => loadUserSettings(currentUser.uid),
-        "Loading…"
-      );
-      if (!seller.sellerName || !seller.sellerAddress || !seller.sellerPhone) {
-        errEl.textContent = "Complete Seller settings before creating an invoice.";
-        window.location.hash = "#/settings";
-        return;
+      try {
+        const seller = await withLoading(
+          () => loadUserSettings(currentUser.uid),
+          "Loading…"
+        );
+        if (!seller.sellerName || !seller.sellerAddress || !seller.sellerPhone) {
+          if (errEl) errEl.textContent = "Complete Seller settings before creating an invoice.";
+          window.location.hash = "#/settings";
+          return;
+        }
+
+        const merged = mergeSellerIntoInvoicePayload(payload, seller);
+        const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+          payload.total,
+          payload.paymentStatus,
+          payload.amountPaidOnInvoice
+        );
+
+        let prevSnap = 0;
+        let currSnap = 0;
+
+        if (editingInvoiceId && editingInvoiceSnapshot) {
+          const oldInv = editingInvoiceSnapshot;
+          const oldCustId = (oldInv.customerId || "").trim();
+          const newCustId = (payload.selectedCustomerId || "").trim();
+          const oldTotal = round2(Number(oldInv.total) || 0);
+          const oldPaid = round2(Number(oldInv.amountPaidOnInvoice) || 0);
+          const oldNet = round2(oldTotal - oldPaid);
+          if (newCustId) {
+            const c = await getCustomerById(db, newCustId);
+            const b = round2(Number(c?.outstandingBalance) || 0);
+            if (oldCustId === newCustId) {
+              prevSnap = round2(b - oldNet);
+            } else {
+              prevSnap = b;
+            }
+          }
+          currSnap = round2(prevSnap + Number(payload.total) - amountPaidOnInvoice);
+        } else {
+          if (payload.selectedCustomerId) {
+            const c = await getCustomerById(db, payload.selectedCustomerId);
+            prevSnap = round2(Number(c?.outstandingBalance) || 0);
+          }
+          currSnap = round2(prevSnap + Number(payload.total) - amountPaidOnInvoice);
+        }
+
+        const inv = {
+          ...merged,
+          date: editingInvoiceSnapshot ? editingInvoiceSnapshot.date : new Date(),
+          invoiceNumber: editingInvoiceSnapshot ? editingInvoiceSnapshot.invoiceNumber || "" : "",
+          paymentStatus: normalizedStatus,
+          paymentMethod: payload.paymentMethod || "credit_sale",
+          amountPaidOnInvoice,
+          previousBalanceSnapshot: prevSnap,
+          currentBalanceSnapshot: currSnap,
+          previousBalance: prevSnap,
+          currentBalance: currSnap,
+        };
+        delete inv.selectedCustomerId;
+
+        const scroll = document.getElementById("invoice-preview-scroll");
+        const previewErr = document.getElementById("invoice-preview-error");
+        if (previewErr) previewErr.textContent = "";
+        if (!scroll) return;
+        scroll.innerHTML = "";
+        const wrap = document.createElement("div");
+        wrap.className = "invoice-print-outer";
+        wrap.appendChild(renderInvoiceDocument(inv));
+        scroll.appendChild(wrap);
+
+        const modal = document.getElementById("invoice-preview-modal");
+        if (!modal) return;
+        modal.classList.remove("hidden");
+        modal.setAttribute("aria-hidden", "false");
+        pendingInvoicePayload = payload;
+      } catch (ex) {
+        pendingInvoicePayload = null;
+        const msg = firestorePermissionHint(ex) || ex.message || "Could not build preview.";
+        if (errEl) errEl.textContent = msg;
+        showToast(msg, { type: "error" });
       }
-
-      pendingInvoicePayload = payload;
-      const merged = mergeSellerIntoInvoicePayload(payload, seller);
-      const inv = { ...merged, date: new Date(), invoiceNumber: "" };
-      delete inv.selectedCustomerId;
-
-      const scroll = document.getElementById("invoice-preview-scroll");
-      scroll.innerHTML = "";
-      const wrap = document.createElement("div");
-      wrap.className = "invoice-print-outer";
-      wrap.appendChild(renderInvoiceDocument(inv));
-      scroll.appendChild(wrap);
-
-      const modal = document.getElementById("invoice-preview-modal");
-      modal.classList.remove("hidden");
-      modal.setAttribute("aria-hidden", "false");
     },
   });
   invoiceFormApi.ensureOneRow();
@@ -848,6 +1047,140 @@ async function openCustomerEditModal(customerId) {
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   document.getElementById("edit-cust-name").focus();
+}
+
+function closeCustomerPaymentModal() {
+  paymentCustomerId = null;
+  const modal = document.getElementById("customer-payment-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+  const form = document.getElementById("form-customer-payment");
+  if (form) form.reset();
+  const errEl = document.getElementById("customer-payment-error");
+  if (errEl) errEl.textContent = "";
+  const ul = document.getElementById("pay-tx-list");
+  if (ul) ul.innerHTML = "";
+}
+
+async function openCustomerPaymentModal(customerId) {
+  if (!currentUser || !customerId) return;
+  const errEl = document.getElementById("customer-payment-error");
+  if (errEl) errEl.textContent = "";
+
+  const c = await withLoading(() => getCustomerById(db, customerId), "Loading…");
+  if (!c) {
+    showToast("Customer not found.", { type: "error" });
+    return;
+  }
+  paymentCustomerId = customerId;
+  const forEl = document.getElementById("customer-payment-for");
+  if (forEl) forEl.textContent = c.name ? `Customer: ${c.name}` : "";
+  const outEl = document.getElementById("customer-payment-outstanding");
+  if (outEl) outEl.textContent = `₹ ${round2(Number(c.outstandingBalance) || 0).toFixed(2)}`;
+
+  const form = document.getElementById("form-customer-payment");
+  if (form) form.reset();
+
+  const ul = document.getElementById("pay-tx-list");
+  if (ul) {
+    ul.innerHTML = "";
+    try {
+      const txs = await listMoneyTransactionsForCustomer(db, currentUser.uid, customerId, 25);
+      const typeShort = (t) => {
+        if (t === "INVOICE_TOTAL") return "Invoice total";
+        if (t === "PAYMENT_ON_INVOICE") return "Payment (on invoice)";
+        if (t === "PAYMENT_STANDALONE") return "Payment";
+        if (t === "INVOICE_ADJUSTMENT") return "Invoice adjustment";
+        return t || "Entry";
+      };
+      const txAmount = (tx) => {
+        if (tx.type === "INVOICE_ADJUSTMENT" && tx.receivableDelta != null) {
+          return round2(Number(tx.receivableDelta));
+        }
+        return round2(Number(tx.amount) || 0);
+      };
+      for (const tx of txs) {
+        const li = document.createElement("li");
+        const amt = txAmount(tx);
+        const dt = tx.createdAt ? formatInvoiceDate(tx.createdAt) : "—";
+        const invNo = tx.invoiceNumber ? ` ${tx.invoiceNumber}` : "";
+        let alloc = "";
+        if (tx.type === "PAYMENT_STANDALONE" && Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
+          const nums = tx.allocatedInvoices.map((a) => a.invoiceNumber || "").filter(Boolean);
+          if (nums.length) {
+            const shown = nums.slice(0, 4);
+            alloc = ` → ${shown.join(", ")}${nums.length > 4 ? "…" : ""}`;
+          }
+        }
+        li.textContent = `${dt} · ${typeShort(tx.type)}${invNo}${alloc} · ₹ ${amt.toFixed(2)}`;
+        ul.appendChild(li);
+      }
+    } catch (_) {
+      const li = document.createElement("li");
+      li.className = "muted";
+      li.textContent = "Could not load transactions.";
+      ul.appendChild(li);
+    }
+  }
+
+  const modal = document.getElementById("customer-payment-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+  }
+  document.getElementById("pay-amount")?.focus();
+}
+
+function setupCustomerPaymentModal() {
+  const form = document.getElementById("form-customer-payment");
+  const btnCancel = document.getElementById("btn-customer-payment-cancel");
+  const backdrop = document.getElementById("customer-payment-backdrop");
+  if (!form || !btnCancel) return;
+
+  btnCancel.addEventListener("click", () => closeCustomerPaymentModal());
+  backdrop?.addEventListener("click", () => closeCustomerPaymentModal());
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById("customer-payment-error");
+    if (errEl) errEl.textContent = "";
+    if (!paymentCustomerId || !currentUser) return;
+
+    const raw = parseFloat(document.getElementById("pay-amount")?.value);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      if (errEl) errEl.textContent = "Enter a valid amount.";
+      return;
+    }
+    const method = document.getElementById("pay-method")?.value || "other";
+    const note = document.getElementById("pay-note")?.value?.trim() || "";
+
+    try {
+      await withLoading(
+        () =>
+          recordCustomerPayment(db, currentUser.uid, {
+            customerId: paymentCustomerId,
+            amount: raw,
+            paymentMethod: method,
+            note,
+          }),
+        "Saving payment…"
+      );
+      showToast("Payment recorded.");
+      closeCustomerPaymentModal();
+      await renderCustomersPage();
+    } catch (ex) {
+      if (errEl) errEl.textContent = firestorePermissionHint(ex) || ex.message || "Could not save payment.";
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = document.getElementById("customer-payment-modal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    closeCustomerPaymentModal();
+  });
 }
 
 function setupCustomerEditModal() {
@@ -957,6 +1290,79 @@ function setupCustomerEditModal() {
   });
 }
 
+function groupInvoicesByCustomerId(invoiceRows) {
+  const map = new Map();
+  for (const inv of invoiceRows) {
+    const cid = String(inv.customerId || "").trim();
+    if (!cid) continue;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push(inv);
+  }
+  return map;
+}
+
+function closeCustomerInvoicesModal() {
+  const modal = document.getElementById("customer-invoices-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function openCustomerInvoicesModal(customerId, customerName) {
+  const rows = customerInvoicesByCustomerIdCache.get(customerId) || [];
+  const sub = document.getElementById("customer-invoices-modal-sub");
+  if (sub) sub.textContent = customerName ? `Customer: ${customerName}` : "";
+  const tbody = document.getElementById("customer-invoices-modal-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.className = "muted";
+    td.textContent = "No invoices saved for this customer yet.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const inv of rows) {
+      const tr = document.createElement("tr");
+      const tdNum = document.createElement("td");
+      const a = document.createElement("a");
+      a.href = `#/invoice/${inv.id}`;
+      a.textContent = inv.invoiceNumber || "—";
+      a.className = "cust-inv-modal-link";
+      tdNum.appendChild(a);
+      const tdAmt = document.createElement("td");
+      tdAmt.className = "num";
+      const amt = Number(inv.total);
+      tdAmt.textContent = `₹ ${Number.isFinite(amt) ? amt.toFixed(2) : "0.00"}`;
+      const tdWhen = document.createElement("td");
+      tdWhen.textContent = formatInvoiceDateTime(inv.date);
+      tr.appendChild(tdNum);
+      tr.appendChild(tdAmt);
+      tr.appendChild(tdWhen);
+      tbody.appendChild(tr);
+    }
+  }
+  const modal = document.getElementById("customer-invoices-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+  }
+}
+
+function setupCustomerInvoicesModal() {
+  document.getElementById("btn-customer-invoices-close")?.addEventListener("click", () => closeCustomerInvoicesModal());
+  document.getElementById("customer-invoices-modal-backdrop")?.addEventListener("click", () => closeCustomerInvoicesModal());
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = document.getElementById("customer-invoices-modal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    closeCustomerInvoicesModal();
+  });
+}
+
 async function renderCustomersPage() {
   const listEl = document.getElementById("customers-list");
   const emptyEl = document.getElementById("customers-empty");
@@ -964,8 +1370,12 @@ async function renderCustomersPage() {
   if (!currentUser) return;
 
   let rows;
+  let invoiceRows = [];
   try {
-    rows = await listCustomers(db, currentUser.uid);
+    [rows, invoiceRows] = await Promise.all([
+      listCustomers(db, currentUser.uid),
+      listInvoicesForUser(db, currentUser.uid).catch(() => []),
+    ]);
   } catch (ex) {
     emptyEl.hidden = false;
     emptyEl.textContent =
@@ -973,6 +1383,8 @@ async function renderCustomersPage() {
       "Could not load customers. Check Firestore rules for the customers collection.";
     return;
   }
+  const byCustomer = groupInvoicesByCustomerId(invoiceRows);
+  customerInvoicesByCustomerIdCache = byCustomer;
   emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
   if (!rows.length) {
     emptyEl.hidden = false;
@@ -984,17 +1396,41 @@ async function renderCustomersPage() {
     li.className = "customer-row";
     const phone = escapeHtml(row.phone || "");
     const addr = escapeHtml((row.address || "").slice(0, 80));
+    const ob = round2(Number(row.outstandingBalance) || 0);
+    const custName = row.name || "";
     li.innerHTML = `<div class="customer-card">
-      <strong>${escapeHtml(row.name || "")}</strong>
+      <strong>${escapeHtml(custName)}</strong>
       <div class="meta">${phone} · ${addr}${(row.address || "").length > 80 ? "…" : ""}</div>
+      <div class="meta"><span>Outstanding: ₹ ${ob.toFixed(2)}</span></div>
       <div class="btn-row customer-card-actions">
         <a class="btn btn-secondary btn-small" href="#/create?customer=${encodeURIComponent(row.id)}">Use in invoice</a>
+        <button type="button" class="btn btn-secondary btn-small btn-show-customer-invoices" data-id="${escapeHtml(row.id)}" data-name="${escapeHtml(custName)}">Show invoices</button>
+        <button type="button" class="btn btn-secondary btn-small btn-pay-customer" data-id="${escapeHtml(row.id)}">Record payment</button>
         <button type="button" class="btn btn-secondary btn-small btn-edit-customer" data-id="${escapeHtml(row.id)}">Edit</button>
         <button type="button" class="btn btn-ghost btn-small btn-del-customer" data-id="${escapeHtml(row.id)}">Delete</button>
       </div>
     </div>`;
     listEl.appendChild(li);
   }
+  listEl.querySelectorAll(".btn-show-customer-invoices").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cid = btn.getAttribute("data-id");
+      const nm = btn.getAttribute("data-name") || "";
+      if (!cid) return;
+      openCustomerInvoicesModal(cid, nm);
+    });
+  });
+  listEl.querySelectorAll(".btn-pay-customer").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cid = btn.getAttribute("data-id");
+      if (!cid) return;
+      try {
+        await openCustomerPaymentModal(cid);
+      } catch (ex) {
+        showToast(firestorePermissionHint(ex) || ex.message || "Could not open payment.", { type: "error" });
+      }
+    });
+  });
   listEl.querySelectorAll(".btn-edit-customer").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const cid = btn.getAttribute("data-id");
@@ -1064,15 +1500,211 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** Max invoices per bulk ZIP (browser / time limits). */
+const BULK_HISTORY_PDF_MAX = 100;
+
+let historyBulkDownloadBusy = false;
+
+function uniquePdfFilenameInZip(baseName, used) {
+  const safe = String(baseName || "invoice").replace(/[^a-zA-Z0-9-_]/g, "_") || "invoice";
+  let name = `${safe}.pdf`;
+  let n = 2;
+  while (used.has(name)) {
+    name = `${safe}-${n}.pdf`;
+    n += 1;
+  }
+  used.add(name);
+  return name;
+}
+
+async function invoiceNodeToPdfBlob(node) {
+  const h2p = window.html2pdf;
+  if (!h2p) throw new Error("PDF library not loaded.");
+  const opts = {
+    margin: [8, 8, 10, 8],
+    filename: "x.pdf",
+    image: { type: "jpeg", quality: 0.95 },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      scrollY: 0,
+      scrollX: 0,
+      backgroundColor: "#ffffff",
+    },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    pagebreak: { mode: ["css"] },
+  };
+  const chain = h2p().set(opts).from(node);
+  if (typeof chain.outputPdf === "function") {
+    return chain.outputPdf("blob");
+  }
+  if (typeof chain.output === "function") {
+    return chain.output("blob");
+  }
+  throw new Error("PDF export is not supported in this browser.");
+}
+
+async function downloadHistoryFilteredZip() {
+  if (historyBulkDownloadBusy) {
+    showToast("A bulk download is already in progress.", { type: "info" });
+    return;
+  }
+  historyBulkDownloadBusy = true;
+  try {
+  if (!currentUser) {
+    showToast("Sign in to download invoices.", { type: "error" });
+    return;
+  }
+  if (!historyCache || !historyCache.length) {
+    showToast("No invoices loaded. Refresh the page or open History again.", { type: "error" });
+    return;
+  }
+  const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
+  if (!filtered.length) {
+    showToast("No invoices match the current filters.", { type: "error" });
+    return;
+  }
+  const rows = filtered.slice(0, BULK_HISTORY_PDF_MAX);
+  if (filtered.length > BULK_HISTORY_PDF_MAX) {
+    showToast(
+      `Downloading the first ${BULK_HISTORY_PDF_MAX} of ${filtered.length} matching invoices. Narrow filters to include the rest in another ZIP.`,
+      { type: "info" }
+    );
+  }
+  if (!window.JSZip) {
+    showToast("ZIP library not loaded. Refresh the page and try again.", { type: "error" });
+    return;
+  }
+  if (!window.html2pdf) {
+    showToast("PDF library not loaded. Refresh the page and try again.", { type: "error" });
+    return;
+  }
+
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText =
+    "position:fixed;left:-12000px;top:0;width:794px;max-width:100vw;visibility:hidden;pointer-events:none;z-index:-1;";
+  document.body.appendChild(host);
+
+  showLoading("Preparing ZIP…");
+  const usedNames = new Set();
+  const zip = new window.JSZip();
+  let added = 0;
+
+  try {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const prog = document.querySelector(".app-loading-text");
+      if (prog) prog.textContent = `Generating PDF ${i + 1} / ${rows.length}…`;
+
+      const inv = await getInvoiceById(db, row.id);
+      if (!inv || !canAccessInvoice(currentUser, inv.userId)) continue;
+
+      const node = renderInvoiceDocument(inv);
+      host.innerHTML = "";
+      host.appendChild(node);
+      await new Promise((r) => requestAnimationFrame(r));
+
+      const blob = await invoiceNodeToPdfBlob(node);
+      const fname = uniquePdfFilenameInZip(inv.invoiceNumber || inv.id || row.id, usedNames);
+      zip.file(fname, blob);
+      added += 1;
+    }
+
+    if (added === 0) {
+      showToast("No invoices could be exported.", { type: "error" });
+      return;
+    }
+
+    const prog2 = document.querySelector(".app-loading-text");
+    if (prog2) prog2.textContent = "Creating ZIP file…";
+    const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoices-${stamp}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast(`Downloaded ${added} invoice PDF${added === 1 ? "" : "s"} in one ZIP.`);
+  } catch (e) {
+    showToast(e.message || "Could not create ZIP.", { type: "error" });
+  } finally {
+    host.remove();
+    hideLoading();
+  }
+} finally {
+  historyBulkDownloadBusy = false;
+}
+}
+
+function setupHistoryBulkDownload() {
+  document.getElementById("btn-history-bulk-pdf")?.addEventListener("click", () => downloadHistoryFilteredZip());
+}
+
 async function renderInvoicePage(id) {
   const root = document.getElementById("invoice-print-root");
   root.innerHTML = "";
   if (!currentUser) return;
 
+  const btnEdit = document.getElementById("btn-invoice-edit");
+  const btnDel = document.getElementById("btn-invoice-delete");
+  if (btnEdit) btnEdit.hidden = true;
+  if (btnDel) btnDel.hidden = true;
+
   const inv = await getInvoiceById(db, id);
   if (!inv || !canAccessInvoice(currentUser, inv.userId)) {
     root.innerHTML = `<p class="muted">Invoice not found.</p>`;
+    if (btnEdit) btnEdit.hidden = true;
+    if (btnDel) btnDel.hidden = true;
     return;
+  }
+
+  if (btnEdit) {
+    btnEdit.href = `#/create?edit=${encodeURIComponent(id)}`;
+    btnEdit.hidden = false;
+  }
+  if (btnDel) {
+    btnDel.hidden = false;
+    btnDel.onclick = async () => {
+      const label = inv.invoiceNumber || id;
+      if (
+        !window.confirm(
+          `Delete invoice ${label}? This cannot be undone. The customer’s outstanding balance will be adjusted if this invoice was linked to a customer.`
+        )
+      ) {
+        return;
+      }
+      try {
+        await withLoading(() => deleteInvoice(db, currentUser.uid, id), "Deleting invoice…");
+        showToast(`Invoice ${label} deleted.`);
+        window.location.hash = "#/history";
+      } catch (e) {
+        const code = e && e.code;
+        const msg = firestorePermissionHint(e) || e.message || "Could not delete invoice.";
+        if (code === "permission-denied") {
+          const ok = window.confirm(
+            "Full delete failed (Firestore blocked updating the customer or writing the ledger — often unpublished rules or a bad customer userId). Delete this invoice only? The customer balance in the app will not be adjusted; fix it in Firebase if needed."
+          );
+          if (ok) {
+            try {
+              await withLoading(() => deleteInvoiceDocumentOnly(db, currentUser.uid, id), "Deleting invoice…");
+              showToast("Invoice deleted (customer balance not adjusted automatically).");
+              window.location.hash = "#/history";
+            } catch (e2) {
+              showToast(firestorePermissionHint(e2) || e2.message || "Could not delete invoice.", {
+                type: "error",
+              });
+            }
+            return;
+          }
+        }
+        showToast(msg, { type: "error" });
+      }
+    };
   }
 
   const node = renderInvoiceDocument(inv);
@@ -1157,7 +1789,10 @@ setupSettingsForm();
 setupInvoiceForm();
 setupInvoicePreviewModal();
 setupCustomerEditModal();
+setupCustomerPaymentModal();
+setupCustomerInvoicesModal();
 setupLogout();
+setupHistoryBulkDownload();
 registerServiceWorker();
 
 if (isConfigPlaceholder() && bootEl) {

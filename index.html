@@ -19,6 +19,7 @@
   }
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
   <header class="app-header">
@@ -57,16 +58,21 @@
     </section>
 
     <!-- Dashboard -->
-    <section id="view-dashboard" class="view container" hidden>
-      <h1>Dashboard</h1>
-      <p class="muted">Create and manage GST invoices. Seller details are saved in Settings.</p>
-      <div class="btn-row wrap">
-        <a class="btn btn-primary" href="#/create">Create invoice</a>
-        <a class="btn btn-secondary" href="#/customers">Customers</a>
-        <a class="btn btn-secondary" href="#/history">Invoice history</a>
-        <a class="btn btn-secondary" href="#/settings">Seller settings</a>
-      </div>
+    <section id="view-dashboard" class="view container container-wide" hidden>
+      <h1 class="dashboard-page-title">Business dashboard</h1>
+      <div id="dashboard-root" class="dashboard-root"></div>
     </section>
+
+    <div id="dashboard-detail-modal" class="dashboard-detail-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="dashboard-detail-title">
+      <div class="dashboard-detail-backdrop" id="dashboard-detail-backdrop" tabindex="-1"></div>
+      <div class="dashboard-detail-panel card">
+        <div class="dashboard-detail-head">
+          <h2 id="dashboard-detail-title">Details</h2>
+          <button type="button" class="btn btn-ghost dashboard-detail-close" id="dashboard-detail-close" aria-label="Close">✕</button>
+        </div>
+        <div id="dashboard-detail-body" class="dashboard-detail-body"></div>
+      </div>
+    </div>
 
     <!-- Settings -->
     <section id="view-settings" class="view container" hidden>
@@ -168,7 +174,8 @@
 
     <!-- Create invoice -->
     <section id="view-create" class="view container container-wide" hidden>
-      <h1>Create invoice</h1>
+      <h1 id="create-page-title">Create invoice</h1>
+      <p id="create-page-hint" class="muted small" hidden></p>
       <form id="form-invoice" class="card form-block" novalidate>
         <h2 class="h2-small">Customer</h2>
         <label class="inv-customer-search-label">
@@ -354,16 +361,38 @@
           <textarea id="inv-terms-delivery" rows="3" maxlength="500" placeholder="Optional" autocomplete="off"></textarea>
         </label>
         </div>
+        <h2 class="h2-small">Payment</h2>
+        <p class="muted small" id="inv-outstanding-hint">
+          Outstanding before this invoice: <strong id="inv-customer-outstanding">—</strong>
+        </p>
         <div class="inline-two">
           <label>
-            Previous balance (₹)
-            <input type="number" id="inv-prev-balance" min="0" step="0.01" placeholder="0" />
+            Payment status
+            <span class="field-required" aria-hidden="true">*</span>
+            <select id="inv-payment-status" required autocomplete="off">
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial</option>
+              <option value="paid">Paid in full</option>
+            </select>
           </label>
           <label>
-            Current balance (₹)
-            <input type="number" id="inv-curr-balance" min="0" step="0.01" placeholder="0" />
+            Payment method
+            <span class="field-required" aria-hidden="true">*</span>
+            <select id="inv-payment-method" required autocomplete="off">
+              <option value="credit_sale">Credit sale</option>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank transfer</option>
+              <option value="cheque">Cheque</option>
+              <option value="card">Card</option>
+            </select>
           </label>
         </div>
+        <label id="inv-amount-paid-wrap" class="hidden">
+          Amount paid on this invoice (₹)
+          <span class="field-required" aria-hidden="true">*</span>
+          <input type="number" id="inv-amount-paid-on-invoice" min="0" step="0.01" placeholder="0" />
+        </label>
 
         <h2 class="h2-small">Other</h2>
         <label>
@@ -407,7 +436,8 @@
         <div class="invoice-preview-backdrop" id="invoice-preview-backdrop" tabindex="-1"></div>
         <div class="invoice-preview-panel card">
           <h2 id="invoice-preview-title">Invoice preview</h2>
-          <p class="muted small invoice-preview-hint">Check all details. Invoice number and official date are assigned when you generate the invoice.</p>
+          <p id="invoice-preview-hint" class="muted small invoice-preview-hint">Check all details. Invoice number and official date are assigned when you generate the invoice.</p>
+          <p class="form-error" id="invoice-preview-error" role="alert"></p>
           <div id="invoice-preview-scroll" class="invoice-preview-scroll"></div>
           <div class="btn-row wrap invoice-preview-actions">
             <button type="button" class="btn btn-secondary" id="btn-invoice-preview-back">Back to edit</button>
@@ -525,6 +555,68 @@
       </div>
     </div>
 
+    <div id="customer-payment-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-payment-title">
+      <div class="customer-edit-backdrop" id="customer-payment-backdrop" tabindex="-1"></div>
+      <div class="customer-edit-panel card form-block">
+        <h2 id="customer-payment-title">Record payment</h2>
+        <p class="muted small" id="customer-payment-for"></p>
+        <p class="muted small">Outstanding: <strong id="customer-payment-outstanding"></strong></p>
+        <form id="form-customer-payment" novalidate>
+          <p class="form-error" id="customer-payment-error" role="alert"></p>
+          <label>
+            Amount (₹)
+            <input type="number" id="pay-amount" min="0.01" step="0.01" required />
+          </label>
+          <label>
+            Method
+            <select id="pay-method" required autocomplete="off">
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank transfer</option>
+              <option value="cheque">Cheque</option>
+              <option value="card">Card</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Note (optional)
+            <input type="text" id="pay-note" maxlength="200" autocomplete="off" />
+          </label>
+          <div class="btn-row wrap">
+            <button type="button" class="btn btn-secondary" id="btn-customer-payment-cancel">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-customer-payment-save">Save payment</button>
+          </div>
+        </form>
+        <details class="pay-tx-details" id="pay-tx-details">
+          <summary>Recent transactions</summary>
+          <ul class="pay-tx-list" id="pay-tx-list"></ul>
+        </details>
+      </div>
+    </div>
+
+    <div id="customer-invoices-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-invoices-modal-heading">
+      <div class="customer-edit-backdrop" id="customer-invoices-modal-backdrop" tabindex="-1"></div>
+      <div class="customer-edit-panel card customer-invoices-modal-panel">
+        <h2 id="customer-invoices-modal-heading">Invoices</h2>
+        <p class="muted small" id="customer-invoices-modal-sub"></p>
+        <div class="customer-invoices-modal-scroll">
+          <table class="customer-invoices-table">
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th class="num">Amount</th>
+                <th>Saved (date &amp; time)</th>
+              </tr>
+            </thead>
+            <tbody id="customer-invoices-modal-tbody"></tbody>
+          </table>
+        </div>
+        <div class="btn-row wrap">
+          <button type="button" class="btn btn-secondary" id="btn-customer-invoices-close">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- History -->
     <section id="view-history" class="view container container-wide" hidden>
       <h1>Invoice history</h1>
@@ -577,6 +669,27 @@
             Max amount (₹)
             <input type="number" id="hist-amount-max" min="0" step="0.01" placeholder="Any" />
           </label>
+          <label>
+            Payment status
+            <select id="hist-payment-status" autocomplete="off">
+              <option value="">Any</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial</option>
+              <option value="paid">Paid</option>
+            </select>
+          </label>
+          <label>
+            Payment method
+            <select id="hist-payment-method" autocomplete="off">
+              <option value="">Any</option>
+              <option value="credit_sale">Credit sale</option>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank transfer</option>
+              <option value="cheque">Cheque</option>
+              <option value="card">Card</option>
+            </select>
+          </label>
         </div>
 
         <div id="history-advanced-fields" class="history-filter-grid hidden">
@@ -628,9 +741,13 @@
         <div class="btn-row wrap history-filter-actions">
           <button type="submit" class="btn btn-primary" id="btn-history-apply">Apply filters</button>
           <button type="button" class="btn btn-secondary" id="btn-history-clear">Clear all</button>
+          <button type="button" class="btn btn-secondary" id="btn-history-bulk-pdf" title="Download all invoices matching current filters as PDFs in one ZIP file">
+            Download filtered PDFs (ZIP)
+          </button>
         </div>
       </form>
 
+      <p class="muted small history-bulk-hint">Bulk download uses the same filters as the list below (max 100 invoices per ZIP).</p>
       <p class="muted small" id="history-count" hidden></p>
       <p class="muted" id="history-empty">No invoices yet.</p>
       <ul class="invoice-list" id="history-list"></ul>
@@ -640,6 +757,8 @@
     <section id="view-invoice" class="view container" hidden>
       <div class="invoice-actions btn-row wrap no-print">
         <a href="#/history" class="btn btn-secondary">Back</a>
+        <a class="btn btn-secondary" id="btn-invoice-edit" href="#/create" hidden>Edit invoice</a>
+        <button type="button" class="btn btn-danger" id="btn-invoice-delete" hidden>Delete invoice</button>
         <button type="button" class="btn btn-primary" id="btn-download-pdf">Download PDF</button>
         <button type="button" class="btn btn-secondary" id="btn-print">Print</button>
       </div>
@@ -658,6 +777,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

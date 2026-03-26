@@ -76,11 +76,30 @@ function toggleConsigneeField() {
   }
 }
 
-function parseOptMoney(el) {
-  const v = el.value;
-  if (v === "" || v == null) return null;
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? round2(n) : null;
+function formatMoneyInr(n) {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  return `₹ ${round2(Number(n)).toFixed(2)}`;
+}
+
+function syncPaymentPartialUI() {
+  const st = document.getElementById("inv-payment-status")?.value || "unpaid";
+  const wrap = document.getElementById("inv-amount-paid-wrap");
+  const inp = document.getElementById("inv-amount-paid-on-invoice");
+  if (!wrap || !inp) return;
+  if (st === "partial") {
+    wrap.classList.remove("hidden");
+    inp.required = true;
+  } else {
+    wrap.classList.add("hidden");
+    inp.required = false;
+    inp.value = "";
+  }
+}
+
+function setOutstandingLabel(amountOrNull) {
+  const el = document.getElementById("inv-customer-outstanding");
+  if (!el) return;
+  el.textContent = amountOrNull == null ? "—" : formatMoneyInr(amountOrNull);
 }
 
 /** HTML &lt;input type="date"&gt; value (yyyy-mm-dd) → dd/mm/yyyy for Firestore / invoice print */
@@ -90,6 +109,17 @@ function isoDateToDdMmYyyy(iso) {
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return s;
   return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/** Stored dd/mm/yyyy → yyyy-mm-dd for &lt;input type="date"&gt; */
+function ddMmYyyyToIsoDate(s) {
+  const str = String(s ?? "").trim();
+  if (!str) return "";
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return "";
+  const dd = String(m[1]).padStart(2, "0");
+  const mm = String(m[2]).padStart(2, "0");
+  return `${m[3]}-${mm}-${dd}`;
 }
 
 function normKey(s) {
@@ -156,6 +186,7 @@ export function initInvoiceForm(opts) {
 
     if (!id) {
       customerSearchInput.value = "";
+      setOutstandingLabel(null);
       document.getElementById("inv-buyer-name").value = "";
       document.getElementById("inv-buyer-address").value = "";
       document.getElementById("inv-buyer-phone").value = "";
@@ -221,6 +252,7 @@ export function initInvoiceForm(opts) {
         const cur = customerList.find((c) => c.id === hid);
         if (cur && normKey(cur.name) !== normKey(customerSearchInput.value)) {
           customerIdHidden.value = "";
+          setOutstandingLabel(null);
         }
       }
       renderCustomerListbox();
@@ -294,6 +326,10 @@ export function initInvoiceForm(opts) {
 
   document.getElementById("inv-consignee-same").addEventListener("change", toggleConsigneeField);
 
+  const payStatusEl = document.getElementById("inv-payment-status");
+  payStatusEl?.addEventListener("change", syncPaymentPartialUI);
+  syncPaymentPartialUI();
+
   function resetForm() {
     tbody.innerHTML = "";
     createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
@@ -335,8 +371,14 @@ export function initInvoiceForm(opts) {
     document.getElementById("inv-bol-date").value = "";
     document.getElementById("inv-vehicle-no").value = "";
     document.getElementById("inv-terms-delivery").value = "";
-    document.getElementById("inv-prev-balance").value = "";
-    document.getElementById("inv-curr-balance").value = "";
+    const paySt = document.getElementById("inv-payment-status");
+    if (paySt) paySt.value = "unpaid";
+    const payM = document.getElementById("inv-payment-method");
+    if (payM) payM.value = "credit_sale";
+    const paidInp = document.getElementById("inv-amount-paid-on-invoice");
+    if (paidInp) paidInp.value = "";
+    syncPaymentPartialUI();
+    setOutstandingLabel(null);
     document.getElementById("inv-eway").value = "";
     document.getElementById("invoice-form-error").textContent = "";
     recalcTotals();
@@ -367,6 +409,17 @@ export function initInvoiceForm(opts) {
     const consigneeEmail = document.getElementById("inv-consignee-email").value.trim();
     const ewayBillNo = document.getElementById("inv-eway").value.trim();
     const selectedCustomerId = (customerIdHidden && customerIdHidden.value) || "";
+    const paymentStatus = document.getElementById("inv-payment-status")?.value || "unpaid";
+    const paymentMethod = document.getElementById("inv-payment-method")?.value || "credit_sale";
+    let amountPaidOnInvoice = 0;
+    if (paymentStatus === "partial") {
+      const rawPaid = parseFloat(document.getElementById("inv-amount-paid-on-invoice")?.value);
+      if (!Number.isFinite(rawPaid) || rawPaid <= 0) {
+        errEl.textContent = "Enter amount paid for a partial payment.";
+        return;
+      }
+      amountPaidOnInvoice = round2(rawPaid);
+    }
 
     if (!buyerName) {
       errEl.textContent = "Enter buyer name.";
@@ -441,8 +494,10 @@ export function initInvoiceForm(opts) {
     }
 
     const totals = recalcTotals();
-    const prevBal = parseOptMoney(document.getElementById("inv-prev-balance"));
-    const currBal = parseOptMoney(document.getElementById("inv-curr-balance"));
+    if (paymentStatus === "partial" && amountPaidOnInvoice > totals.total) {
+      errEl.textContent = "Amount paid cannot exceed invoice total.";
+      return;
+    }
     if (opts.onPreview) {
       await opts.onPreview({
         customerName: buyerName,
@@ -487,8 +542,9 @@ export function initInvoiceForm(opts) {
         eInvoiceAckNo: "",
         eInvoiceAckDate: "",
         eInvoiceQrUrl: "",
-        previousBalance: prevBal,
-        currentBalance: currBal,
+        paymentStatus,
+        paymentMethod,
+        amountPaidOnInvoice,
         selectedCustomerId,
         items,
         subtotal: totals.subtotal,
@@ -503,10 +559,102 @@ export function initInvoiceForm(opts) {
 
   toggleConsigneeField();
 
+  function populateFromInvoice(inv, opts = {}) {
+    const openingBeforeInvoice = opts.openingBeforeInvoice;
+    tbody.innerHTML = "";
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    if (items.length) {
+      for (const it of items) {
+        createRow(tbody, {
+          name: it.name,
+          hsn: it.hsn,
+          quantity: it.quantity,
+          rate: it.rate,
+          per: it.per || "Pcs",
+        });
+      }
+    } else {
+      createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+    }
+
+    setTaxRates(inv.cgstPercent, inv.sgstPercent);
+
+    if (customerIdHidden && customerSearchInput) {
+      const cid = (inv.customerId || "").trim();
+      customerIdHidden.value = cid;
+      if (cid) {
+        const picked = customerList.find((c) => c.id === cid);
+        customerSearchInput.value = picked ? picked.name || "" : inv.customerName || "";
+      } else {
+        customerSearchInput.value = "";
+      }
+    }
+
+    document.getElementById("inv-buyer-name").value = inv.customerName || "";
+    document.getElementById("inv-buyer-address").value = inv.buyerAddress || "";
+    document.getElementById("inv-buyer-phone").value = inv.buyerPhone || "";
+    document.getElementById("inv-buyer-gstin").value = inv.buyerGstin || "";
+    document.getElementById("inv-buyer-state").value = inv.buyerStateName || "";
+    document.getElementById("inv-buyer-state-code").value = inv.buyerStateCode || "";
+    document.getElementById("inv-buyer-pan").value = inv.buyerPan || "";
+    document.getElementById("inv-place-of-supply").value = inv.placeOfSupply || "";
+    document.getElementById("inv-buyer-contact").value = inv.buyerContact || "";
+    document.getElementById("inv-buyer-email").value = inv.buyerEmail || "";
+
+    const same = inv.consigneeSameAsBuyer !== false;
+    document.getElementById("inv-consignee-same").checked = same;
+    toggleConsigneeField();
+    if (!same) {
+      document.getElementById("inv-consignee-name").value = inv.consigneeName || "";
+      document.getElementById("inv-consignee-address").value = inv.consigneeAddress || "";
+      document.getElementById("inv-consignee-state").value = inv.consigneeStateName || "";
+      document.getElementById("inv-consignee-state-code").value = inv.consigneeStateCode || "";
+      document.getElementById("inv-consignee-gstin").value = inv.consigneeGstin || "";
+      document.getElementById("inv-consignee-phone").value = inv.consigneePhone || "";
+      document.getElementById("inv-consignee-email").value = inv.consigneeEmail || "";
+    }
+
+    document.getElementById("inv-delivery-note").value = inv.deliveryNote || "";
+    document.getElementById("inv-payment-terms").value = inv.paymentTerms || "";
+    document.getElementById("inv-ref-no").value = inv.referenceNo || "";
+    document.getElementById("inv-ref-date").value = ddMmYyyyToIsoDate(inv.referenceDate || "");
+    document.getElementById("inv-other-refs").value = inv.otherReferences || "";
+    document.getElementById("inv-buyer-order-no").value = inv.buyerOrderNo || "";
+    document.getElementById("inv-buyer-order-date").value = ddMmYyyyToIsoDate(inv.buyerOrderDate || "");
+    document.getElementById("inv-dispatch-doc").value = inv.dispatchDocNo || "";
+    document.getElementById("inv-delivery-note-date").value = ddMmYyyyToIsoDate(inv.deliveryNoteDate || "");
+    document.getElementById("inv-dispatch-through").value = inv.dispatchedThrough || "";
+    document.getElementById("inv-destination").value = inv.destination || "";
+    document.getElementById("inv-bol").value = inv.billOfLadingNo || "";
+    document.getElementById("inv-bol-date").value = ddMmYyyyToIsoDate(inv.billOfLadingDate || "");
+    document.getElementById("inv-vehicle-no").value = inv.motorVehicleNo || "";
+    document.getElementById("inv-terms-delivery").value = inv.termsOfDelivery || "";
+    document.getElementById("inv-eway").value = inv.ewayBillNo || "";
+
+    const paySt = document.getElementById("inv-payment-status");
+    if (paySt) paySt.value = inv.paymentStatus || "unpaid";
+    const payM = document.getElementById("inv-payment-method");
+    if (payM) payM.value = inv.paymentMethod || "credit_sale";
+    const paidInp = document.getElementById("inv-amount-paid-on-invoice");
+    if (paidInp) {
+      if ((inv.paymentStatus || "") === "partial") {
+        paidInp.value = String(inv.amountPaidOnInvoice ?? "");
+      } else {
+        paidInp.value = "";
+      }
+    }
+    syncPaymentPartialUI();
+
+    setOutstandingLabel(openingBeforeInvoice != null ? openingBeforeInvoice : null);
+    document.getElementById("invoice-form-error").textContent = "";
+    recalcTotals();
+  }
+
   return {
     resetForm,
     recalcTotals,
     setTaxRates,
+    populateFromInvoice,
     ensureOneRow() {
       if (!tbody.querySelector("tr")) createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
       recalcTotals();

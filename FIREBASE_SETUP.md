@@ -51,20 +51,27 @@ This app uses **Firebase Authentication (Email/Password)** and **Cloud Firestore
 
 ## 6. Firestore security rules
 
-**If you see “Missing or insufficient permissions” when saving Settings or invoices**, your rules are still the default (everything blocked) or not published. Do this:
+**If you see “Missing or insufficient permissions” or “Firestore blocked this (permission denied)”** when saving settings, invoices, payments, or deleting an invoice, your rules are still the default (everything blocked) or not published for **this** project (`firebase-config.js` → `projectId`).
 
-1. Open **Build → Firestore Database → Rules** (not Realtime Database).
-2. Replace the entire editor contents with the rules below (or copy from [`firestore.rules`](firestore.rules) in this project folder).
+Do this:
+
+1. Open the **Rules** tab for **Cloud Firestore** (not Realtime Database). Fast link (replace if your project id differs):  
+   `https://console.firebase.google.com/project/<your-project-id>/firestore/rules`
+2. Replace the entire editor contents with [`firestore.rules`](firestore.rules) from this project folder (must include the **`moneyTransactions`** block).
 3. Click **Publish** and wait until it finishes (a few seconds).
-4. Refresh the app and try **Save settings** again.
+4. Refresh the app and try again.
 
-In **Firestore → Rules**, use rules like the following so each user only reads and writes their own data:
+**Optional (Firebase CLI):** With [`firebase.json`](firebase.json) in this folder, after `firebase login` and `firebase use <project-id>`, you can run:  
+`firebase deploy --only firestore:rules`
+
+In **Firestore → Rules**, paste the **entire** contents of [`firestore.rules`](firestore.rules) from this project (kept in sync with the app). The block below matches that file — **include the `moneyTransactions` section** or saving invoices, payments, and balance updates will be denied.
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Seller profile + invoice counter: only the signed-in user may access their own docs
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
@@ -84,11 +91,17 @@ service cloud.firestore {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
+
+    match /moneyTransactions/{transactionId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }
 ```
 
-For `create`, `request.resource` is the new document. For `update`/`delete`, you may want to also check `resource.data.userId == request.auth.uid` so users cannot reassign invoices.
+For `create`, `request.resource` is the new document. For `update`/`delete`, `resource` is the existing document — the rules above ensure users cannot reassign data to another account.
 
 Click **Publish** after editing.
 
@@ -123,9 +136,25 @@ If Python is not installed, install [Python 3](https://www.python.org/downloads/
 
 After deployment, add your Hosting domain under **Authentication → Authorized domains**.
 
+## 10. Clear Firestore test data (fresh testing)
+
+To remove **all invoices, customers, and money transaction rows** and reset the **invoice number counter** (seller settings under `users/{uid}` are kept):
+
+1. In Firebase Console → **Project settings** → **Service accounts** → **Generate new private key**. Save the JSON file somewhere safe and **do not commit it** to git.
+2. In a terminal, from the project’s **`scripts`** folder: `npm install` (once).
+3. Run (adjust the path to your key file):
+
+   `node clear-firestore-test-data.mjs "C:\path\to\your-service-account.json" --yes`
+
+   Alternatively, set the environment variable `GOOGLE_APPLICATION_CREDENTIALS` to the full path of that JSON file, then run `node clear-firestore-test-data.mjs --yes`.
+
+The `--yes` flag is required so the script only runs when you mean it.
+
+**Manual option (small data):** In **Firestore → Data**, you can delete documents in `invoices`, `customers`, and `moneyTransactions` by hand, and set `users/{yourUid}/meta/invoiceCounter` to `{ "nextNumber": 1 }`. For many rows, use the script above.
+
 ## Troubleshooting
 
 - **Blank page / module errors:** Ensure you are not opening `index.html` as `file://`. Use `START.bat` or another local server.
-- **“Missing or insufficient permissions” (Settings / Save invoice):** Almost always **Firestore rules**. Follow **section 6** exactly — open **Firestore Database → Rules**, paste the rules, click **Publish**. If you use **production mode** without updating rules, all reads/writes are denied until you publish the rules above.
+- **“Missing or insufficient permissions” (Settings / Save invoice / payments):** Almost always **Firestore rules**. Follow **section 6** — copy from [`firestore.rules`](firestore.rules) (or the full block in this doc), paste into **Firestore Database → Rules**, click **Publish**. If you only pasted an older snippet without `moneyTransactions`, ledger writes will fail. If you use **production mode** without updating rules, all reads/writes are denied until you publish.
 - **Permission denied on Firestore:** Confirm you are signed in (Auth) and rules match section 6. `request.auth.uid` must match the `users/{uid}` path.
 - **“The query requires an index”** (often on **History**): Normal. Use the link in the error, create the index, wait until it is **Enabled**, then reload (see section 7).

@@ -47,6 +47,7 @@ export async function addCustomer(db, uid, data) {
     consigneePhone: (data.consigneePhone || "").trim(),
     consigneeEmail: (data.consigneeEmail || "").trim(),
     consigneeSameAsBuyer: Boolean(data.consigneeSameAsBuyer),
+    outstandingBalance: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

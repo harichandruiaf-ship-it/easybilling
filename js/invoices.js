@@ -8,7 +8,6 @@ import {
   orderBy,
   runTransaction,
   serverTimestamp,
-  setDoc,
   Timestamp,
 } from "firebase/firestore";
 
@@ -26,6 +25,18 @@ export function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/** Ensures we can read/update this customer doc. Lets Firestore permission-denied propagate (so the UI can offer delete-only). */
+async function assertCustomerAccessibleForOwner(db, uid, customerId) {
+  if (!customerId) return;
+  const ref = doc(db, "customers", customerId);
+  const snap = await getDoc(ref);
+  if (snap.exists() && snap.data().userId !== uid) {
+    throw new Error(
+      "Customer record is not linked to your account. In Firebase Console, set this customer’s userId to match your login, or clear customerId on the invoice."
+    );
+  }
+}
+
 function counterRef(db, uid) {
   return doc(db, "users", uid, "meta", "invoiceCounter");
 }
@@ -34,28 +45,29 @@ function formatInvoiceNumber(seq) {
   return `INV-${String(seq).padStart(4, "0")}`;
 }
 
-export async function allocateInvoiceNumber(db, uid) {
-  const cRef = counterRef(db, uid);
-  const seq = await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(cRef);
-    let next = 1;
-    if (snap.exists()) {
-      const v = snap.data().nextNumber;
-      next = typeof v === "number" && v >= 1 ? v : 1;
-    }
-    transaction.set(cRef, { nextNumber: next + 1 }, { merge: true });
-    return next;
-  });
-  return formatInvoiceNumber(seq);
+/** Amount collected on this invoice from payment status + optional partial amount. */
+export function computeInvoicePaymentAmounts(total, paymentStatus, amountPaidRaw) {
+  const t = round2(Number(total) || 0);
+  const st = paymentStatus || "unpaid";
+  if (st === "paid") return { amountPaidOnInvoice: t, normalizedStatus: "paid" };
+  if (st === "partial") {
+    const p = round2(Math.min(t, Math.max(0, Number(amountPaidRaw) || 0)));
+    if (p <= 0) return { amountPaidOnInvoice: 0, normalizedStatus: "unpaid" };
+    if (p >= t) return { amountPaidOnInvoice: t, normalizedStatus: "paid" };
+    return { amountPaidOnInvoice: p, normalizedStatus: "partial" };
+  }
+  return { amountPaidOnInvoice: 0, normalizedStatus: "unpaid" };
 }
 
-export async function saveInvoice(db, uid, payload) {
-  const invoiceNumber = await allocateInvoiceNumber(db, uid);
-  const newRef = doc(collection(db, "invoices"));
-  await setDoc(newRef, {
-    invoiceId: newRef.id,
+/** All invoice document fields except `date` / `updatedAt` (caller adds timestamps). */
+function invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap) {
+  const prev = snap.previousBalanceSnapshot;
+  const curr = snap.currentBalanceSnapshot;
+  return {
+    invoiceId,
     userId: uid,
     invoiceNumber,
+    customerId: snap.customerId || "",
     customerName: payload.customerName,
     buyerAddress: payload.buyerAddress,
     buyerPhone: payload.buyerPhone,
@@ -98,14 +110,13 @@ export async function saveInvoice(db, uid, payload) {
     eInvoiceAckNo: payload.eInvoiceAckNo || "",
     eInvoiceAckDate: payload.eInvoiceAckDate || "",
     eInvoiceQrUrl: payload.eInvoiceQrUrl || "",
-    previousBalance:
-      typeof payload.previousBalance === "number" && !Number.isNaN(payload.previousBalance)
-        ? payload.previousBalance
-        : null,
-    currentBalance:
-      typeof payload.currentBalance === "number" && !Number.isNaN(payload.currentBalance)
-        ? payload.currentBalance
-        : null,
+    paymentStatus: snap.paymentStatus,
+    paymentMethod: snap.paymentMethod,
+    amountPaidOnInvoice: snap.amountPaidOnInvoice,
+    previousBalanceSnapshot: prev,
+    currentBalanceSnapshot: curr,
+    previousBalance: prev,
+    currentBalance: curr,
     sellerName: payload.sellerName,
     sellerSubtitle: payload.sellerSubtitle || "",
     sellerAddress: payload.sellerAddress,
@@ -131,9 +142,384 @@ export async function saveInvoice(db, uid, payload) {
     cgst: payload.cgst,
     sgst: payload.sgst,
     total: payload.total,
-    date: serverTimestamp(),
+  };
+}
+
+/**
+ * Saves invoice, allocates number, updates customer balance and writes ledger rows in one transaction.
+ * `payload.customerId` must be set when the buyer exists in `customers` (after add/update customer).
+ */
+export async function saveInvoice(db, uid, payload) {
+  const invoiceRef = doc(collection(db, "invoices"));
+  const invoiceId = invoiceRef.id;
+  const cRef = counterRef(db, uid);
+  const customerId = (payload.customerId || "").trim();
+  const total = round2(Number(payload.total) || 0);
+  const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+    total,
+    payload.paymentStatus,
+    payload.amountPaidOnInvoice
+  );
+  const paymentMethod = String(payload.paymentMethod || "credit_sale").trim() || "credit_sale";
+
+  return runTransaction(db, async (transaction) => {
+    const custRef = customerId ? doc(db, "customers", customerId) : null;
+
+    // All reads before any writes (Firestore transaction requirement).
+    const counterSnap = await transaction.get(cRef);
+    const custSnap = custRef ? await transaction.get(custRef) : null;
+
+    let next = 1;
+    if (counterSnap.exists()) {
+      const v = counterSnap.data().nextNumber;
+      next = typeof v === "number" && v >= 1 ? v : 1;
+    }
+    const invoiceNumber = formatInvoiceNumber(next);
+
+    let prev = 0;
+    if (custRef && custSnap) {
+      if (!custSnap.exists()) {
+        throw new Error("Customer not found. Refresh and try again.");
+      }
+      const cd = custSnap.data();
+      if (cd.userId !== uid) {
+        throw new Error("Invalid customer.");
+      }
+      prev = round2(Number(cd.outstandingBalance) || 0);
+    }
+
+    const afterInvoice = round2(prev + total);
+    const afterPayment = round2(afterInvoice - amountPaidOnInvoice);
+    const snap = {
+      customerId,
+      paymentStatus: normalizedStatus,
+      paymentMethod,
+      amountPaidOnInvoice,
+      previousBalanceSnapshot: prev,
+      currentBalanceSnapshot: afterPayment,
+    };
+
+    const invData = { ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap), date: serverTimestamp() };
+
+    transaction.set(cRef, { nextNumber: next + 1 }, { merge: true });
+    transaction.set(invoiceRef, invData);
+
+    if (customerId && custRef) {
+      const txInv = doc(collection(db, "moneyTransactions"));
+      transaction.set(txInv, {
+        userId: uid,
+        customerId,
+        type: "INVOICE_TOTAL",
+        amount: total,
+        invoiceId,
+        invoiceNumber,
+        paymentStatus: normalizedStatus,
+        createdAt: serverTimestamp(),
+      });
+      if (amountPaidOnInvoice > 0) {
+        const txPay = doc(collection(db, "moneyTransactions"));
+        transaction.set(txPay, {
+          userId: uid,
+          customerId,
+          type: "PAYMENT_ON_INVOICE",
+          amount: amountPaidOnInvoice,
+          paymentMethod,
+          invoiceId,
+          invoiceNumber,
+          createdAt: serverTimestamp(),
+        });
+      }
+      transaction.update(custRef, {
+        outstandingBalance: afterPayment,
+        balanceUpdatedAt: serverTimestamp(),
+      });
+    }
+
+    return { id: invoiceId, invoiceNumber };
   });
-  return { id: newRef.id, invoiceNumber };
+}
+
+/**
+ * Updates an existing invoice: reverses this invoice's prior effect on receivables, applies new totals/payment,
+ * and updates customer outstandingBalance in one transaction. Appends INVOICE_ADJUSTMENT ledger rows (append-only).
+ * Original `date` and `invoiceNumber` are preserved.
+ */
+export async function updateInvoice(db, uid, invoiceId, payload) {
+  const invRef = doc(db, "invoices", invoiceId);
+  const preSnap = await getDoc(invRef);
+  if (!preSnap.exists()) {
+    throw new Error("Invoice not found.");
+  }
+  const preInv = preSnap.data();
+  if (preInv.userId !== uid) {
+    throw new Error("Invalid invoice.");
+  }
+  const oldCustomerIdPre = (preInv.customerId || "").trim();
+  const newCustomerIdPre = (payload.customerId || "").trim();
+  if (oldCustomerIdPre) {
+    await assertCustomerAccessibleForOwner(db, uid, oldCustomerIdPre);
+  }
+  if (newCustomerIdPre && newCustomerIdPre !== oldCustomerIdPre) {
+    await assertCustomerAccessibleForOwner(db, uid, newCustomerIdPre);
+  }
+
+  const total = round2(Number(payload.total) || 0);
+  const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+    total,
+    payload.paymentStatus,
+    payload.amountPaidOnInvoice
+  );
+  const paymentMethod = String(payload.paymentMethod || "credit_sale").trim() || "credit_sale";
+  const newCustomerId = (payload.customerId || "").trim();
+  const newNet = round2(total - amountPaidOnInvoice);
+
+  return runTransaction(db, async (transaction) => {
+    const invSnap = await transaction.get(invRef);
+    if (!invSnap.exists()) {
+      throw new Error("Invoice not found.");
+    }
+    const oldInv = invSnap.data();
+    if (oldInv.userId !== uid) {
+      throw new Error("Invalid invoice.");
+    }
+
+    const oldCustomerId = (oldInv.customerId || "").trim();
+    const oldTotal = round2(Number(oldInv.total) || 0);
+    const oldPaid = round2(Number(oldInv.amountPaidOnInvoice) || 0);
+    const oldNet = round2(oldTotal - oldPaid);
+    const invoiceNumber = oldInv.invoiceNumber || "";
+
+    const oldCustRef = oldCustomerId ? doc(db, "customers", oldCustomerId) : null;
+    const newCustRef = newCustomerId ? doc(db, "customers", newCustomerId) : null;
+
+    let oldCustSnap = null;
+    let newCustSnap = null;
+    if (oldCustRef && newCustRef && oldCustomerId === newCustomerId) {
+      oldCustSnap = await transaction.get(oldCustRef);
+      newCustSnap = oldCustSnap;
+    } else {
+      if (oldCustRef) oldCustSnap = await transaction.get(oldCustRef);
+      if (newCustRef) newCustSnap = await transaction.get(newCustRef);
+    }
+
+    if (oldCustomerId && oldCustRef) {
+      if (!oldCustSnap.exists()) {
+        throw new Error("Linked customer was removed. Refresh and try again.");
+      }
+      if (oldCustSnap.data().userId !== uid) {
+        throw new Error("Invalid customer.");
+      }
+    }
+    if (newCustomerId && newCustRef) {
+      if (!newCustSnap.exists()) {
+        throw new Error("Customer not found. Refresh and try again.");
+      }
+      if (newCustSnap.data().userId !== uid) {
+        throw new Error("Invalid customer.");
+      }
+    }
+
+    let prevSnap = 0;
+    let currSnap = 0;
+
+    const sameCustomer = Boolean(oldCustomerId && newCustomerId && oldCustomerId === newCustomerId);
+
+    if (sameCustomer) {
+      const b0 = round2(Number(oldCustSnap.data().outstandingBalance) || 0);
+      prevSnap = round2(b0 - oldNet);
+      currSnap = round2(prevSnap + total - amountPaidOnInvoice);
+      if (currSnap < -0.01) {
+        throw new Error(
+          "Outstanding balance cannot be negative. Reduce the total or increase payment on this invoice."
+        );
+      }
+      transaction.update(newCustRef, {
+        outstandingBalance: currSnap,
+        balanceUpdatedAt: serverTimestamp(),
+      });
+      const delta = round2(newNet - oldNet);
+      if (delta !== 0) {
+        const txAdj = doc(collection(db, "moneyTransactions"));
+        transaction.set(txAdj, {
+          userId: uid,
+          customerId: newCustomerId,
+          type: "INVOICE_ADJUSTMENT",
+          receivableDelta: delta,
+          invoiceId,
+          invoiceNumber,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } else {
+      if (oldCustomerId && oldCustRef) {
+        const bOld = round2(Number(oldCustSnap.data().outstandingBalance) || 0);
+        const afterOld = round2(bOld - oldNet);
+        if (afterOld < -0.01) {
+          throw new Error(
+            "This change would leave a negative balance for the previous customer. Check totals and payments."
+          );
+        }
+        transaction.update(oldCustRef, {
+          outstandingBalance: afterOld,
+          balanceUpdatedAt: serverTimestamp(),
+        });
+        if (oldNet !== 0) {
+          const txOld = doc(collection(db, "moneyTransactions"));
+          transaction.set(txOld, {
+            userId: uid,
+            customerId: oldCustomerId,
+            type: "INVOICE_ADJUSTMENT",
+            receivableDelta: round2(-oldNet),
+            invoiceId,
+            invoiceNumber,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+
+      if (newCustomerId && newCustRef) {
+        const bNew = round2(Number(newCustSnap.data().outstandingBalance) || 0);
+        prevSnap = bNew;
+        currSnap = round2(bNew + newNet);
+        if (currSnap < -0.01) {
+          throw new Error(
+            "Outstanding balance cannot be negative. Reduce the total or increase payment on this invoice."
+          );
+        }
+        transaction.update(newCustRef, {
+          outstandingBalance: currSnap,
+          balanceUpdatedAt: serverTimestamp(),
+        });
+        if (newNet !== 0) {
+          const txNew = doc(collection(db, "moneyTransactions"));
+          transaction.set(txNew, {
+            userId: uid,
+            customerId: newCustomerId,
+            type: "INVOICE_ADJUSTMENT",
+            receivableDelta: newNet,
+            invoiceId,
+            invoiceNumber,
+            createdAt: serverTimestamp(),
+          });
+        }
+      } else {
+        prevSnap = 0;
+        currSnap = 0;
+      }
+    }
+
+    const snap = {
+      customerId: newCustomerId,
+      paymentStatus: normalizedStatus,
+      paymentMethod,
+      amountPaidOnInvoice,
+      previousBalanceSnapshot: prevSnap,
+      currentBalanceSnapshot: currSnap,
+    };
+
+    const mergeFields = {
+      ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap),
+      updatedAt: serverTimestamp(),
+    };
+
+    transaction.update(invRef, mergeFields);
+
+    return { id: invoiceId, invoiceNumber };
+  });
+}
+
+/**
+ * Deletes only the invoice document (no customer balance or ledger updates).
+ * Use when full delete fails with permission-denied (e.g. rules block moneyTransactions or bad customer userId).
+ */
+export async function deleteInvoiceDocumentOnly(db, uid, invoiceId) {
+  const invRef = doc(db, "invoices", invoiceId);
+  return runTransaction(db, async (transaction) => {
+    const invSnap = await transaction.get(invRef);
+    if (!invSnap.exists()) {
+      throw new Error("Invoice not found.");
+    }
+    if (invSnap.data().userId !== uid) {
+      throw new Error("Invalid invoice.");
+    }
+    transaction.delete(invRef);
+    return { deleted: true, skippedLedger: true };
+  });
+}
+
+/**
+ * Deletes an invoice: reverses its net effect on the linked customer's outstanding balance (if any),
+ * appends an INVOICE_ADJUSTMENT ledger row, then removes the invoice document.
+ */
+export async function deleteInvoice(db, uid, invoiceId) {
+  const invRef = doc(db, "invoices", invoiceId);
+  const preSnap = await getDoc(invRef);
+  if (!preSnap.exists()) {
+    throw new Error("Invoice not found.");
+  }
+  const preInv = preSnap.data();
+  if (preInv.userId !== uid) {
+    throw new Error("Invalid invoice.");
+  }
+  const preCust = (preInv.customerId || "").trim();
+  if (preCust) {
+    await assertCustomerAccessibleForOwner(db, uid, preCust);
+  }
+
+  return runTransaction(db, async (transaction) => {
+    const invSnap = await transaction.get(invRef);
+    if (!invSnap.exists()) {
+      throw new Error("Invoice not found.");
+    }
+    const oldInv = invSnap.data();
+    if (oldInv.userId !== uid) {
+      throw new Error("Invalid invoice.");
+    }
+
+    const oldCustomerId = (oldInv.customerId || "").trim();
+    const oldTotal = round2(Number(oldInv.total) || 0);
+    const oldPaid = round2(Number(oldInv.amountPaidOnInvoice) || 0);
+    const oldNet = round2(oldTotal - oldPaid);
+    const invoiceNumber = oldInv.invoiceNumber || "";
+
+    if (oldCustomerId) {
+      const custRef = doc(db, "customers", oldCustomerId);
+      const custSnap = await transaction.get(custRef);
+      if (!custSnap.exists()) {
+        // Customer doc was removed; invoice is orphaned — delete invoice only.
+        transaction.delete(invRef);
+        return { deleted: true };
+      }
+      if (custSnap.data().userId !== uid) {
+        throw new Error("Invalid customer.");
+      }
+      const b = round2(Number(custSnap.data().outstandingBalance) || 0);
+      const rawAfter = round2(b - oldNet);
+      // If books are inconsistent (payments/edits), clamp so delete can finish; ledger uses actual delta.
+      const after = rawAfter < 0 ? 0 : rawAfter;
+      const receivableDelta = round2(after - b);
+      transaction.update(custRef, {
+        outstandingBalance: after,
+        balanceUpdatedAt: serverTimestamp(),
+      });
+      if (receivableDelta !== 0) {
+        const txAdj = doc(collection(db, "moneyTransactions"));
+        transaction.set(txAdj, {
+          userId: uid,
+          customerId: oldCustomerId,
+          type: "INVOICE_ADJUSTMENT",
+          receivableDelta,
+          invoiceId,
+          invoiceNumber,
+          reason: "invoice_deleted",
+          createdAt: serverTimestamp(),
+        });
+      }
+    }
+
+    transaction.delete(invRef);
+    return { deleted: true };
+  });
 }
 
 /** One row for history list + client-side filters (all fields optional for filtering). */
@@ -156,6 +542,13 @@ export async function listInvoicesForUser(db, uid) {
       customerName: x.customerName || "",
       consigneeName: x.consigneeName || "",
       total: typeof x.total === "number" && !Number.isNaN(x.total) ? x.total : 0,
+      subtotal: typeof x.subtotal === "number" && !Number.isNaN(x.subtotal) ? x.subtotal : 0,
+      cgst: typeof x.cgst === "number" && !Number.isNaN(x.cgst) ? x.cgst : 0,
+      sgst: typeof x.sgst === "number" && !Number.isNaN(x.sgst) ? x.sgst : 0,
+      amountPaidOnInvoice:
+        typeof x.amountPaidOnInvoice === "number" && !Number.isNaN(x.amountPaidOnInvoice)
+          ? x.amountPaidOnInvoice
+          : 0,
       date: x.date,
       buyerGstin: x.buyerGstin || "",
       buyerPan: x.buyerPan || "",
@@ -172,6 +565,9 @@ export async function listInvoicesForUser(db, uid) {
       deliveryNote: x.deliveryNote || "",
       paymentTerms: x.paymentTerms || "",
       hsnSearchBlob: hsnBlob,
+      paymentStatus: x.paymentStatus || "",
+      paymentMethod: x.paymentMethod || "",
+      customerId: x.customerId || "",
     };
   });
 }
@@ -192,6 +588,18 @@ export function formatInvoiceDate(date) {
     month: "short",
     year: "numeric",
   });
+}
+
+/** Date + time when the invoice was saved (Firestore `date` field). */
+export function formatInvoiceDateTime(date) {
+  if (!date) return "—";
+  const d = date instanceof Timestamp ? date.toDate() : date;
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "—";
+  try {
+    return d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  } catch (_) {
+    return d.toLocaleString("en-IN");
+  }
 }
 
 export function formatInvoiceDateNumeric(date) {

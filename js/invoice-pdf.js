@@ -15,6 +15,19 @@ function formatMoney(n) {
   return x.toFixed(2);
 }
 
+function paymentMethodDisplay(code) {
+  const m = {
+    credit_sale: "Credit sale",
+    cash: "Cash",
+    upi: "UPI",
+    bank_transfer: "Bank transfer",
+    cheque: "Cheque",
+    card: "Card",
+  };
+  const k = String(code ?? "").trim();
+  return m[k] || (k ? k.replace(/_/g, " ") : "");
+}
+
 function pct(inv) {
   const c = inv.cgstPercent;
   const s = inv.sgstPercent;
@@ -325,14 +338,24 @@ function buildFooterBlock(inv) {
   const taxTotal = (Number(inv.cgst) || 0) + (Number(inv.sgst) || 0);
   const taxWords = amountToWordsIn(taxTotal);
 
-  const prev = inv.previousBalance;
-  const curr = inv.currentBalance;
+  const prev = inv.previousBalanceSnapshot ?? inv.previousBalance;
+  const curr = inv.currentBalanceSnapshot ?? inv.currentBalance;
   const hasPrev = typeof prev === "number" && !Number.isNaN(prev);
   const hasCurr = typeof curr === "number" && !Number.isNaN(curr);
+  const paidRaw = Number(inv.amountPaidOnInvoice);
+  const paid = Number.isFinite(paidRaw) ? paidRaw : 0;
+  const payStatus = String(inv.paymentStatus ?? "").trim();
+  const showPaymentReceived = payStatus === "partial" && paid > 0;
+  const methodLabel = paymentMethodDisplay(inv.paymentMethod);
+  const methodSuffix = methodLabel ? ` <span class="inv-payment-method">(${escapeHtml(methodLabel)})</span>` : "";
+  const paymentReceivedLine = showPaymentReceived
+    ? `<div class="inv-payment-received-line"><strong>Payment received on this invoice:</strong> ₹ ${formatMoney(paid)}${methodSuffix}</div>`
+    : "";
   const balanceSide =
-    hasPrev || hasCurr
+    hasPrev || hasCurr || showPaymentReceived
       ? `<div class="inv-balance-side">
           ${hasPrev ? `<div class="inv-prev-balance-line"><strong>Previous balance: ₹ ${formatMoney(prev)} Dr</strong></div>` : ""}
+          ${paymentReceivedLine}
           ${hasCurr ? `<div class="inv-balance-current"><strong>Current balance:</strong> ₹ ${formatMoney(curr)} Dr</div>` : ""}
         </div>`
       : "";
