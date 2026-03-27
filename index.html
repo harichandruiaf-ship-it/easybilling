@@ -44,41 +44,257 @@
     <p class="loading-msg" id="boot-loading">Loading…</p>
 
     <!-- Login -->
-    <section id="view-login" class="view container" hidden>
-      <h1>Sign in</h1>
-      <form id="form-auth" class="card form-block" novalidate>
-        <label>
-          Email
-          <input type="email" id="auth-email" autocomplete="email" required />
-        </label>
-        <label>
-          Password
-          <span class="password-field-wrap">
-            <input type="password" id="auth-password" autocomplete="current-password" required minlength="6" />
-            <button
-              type="button"
-              class="btn-password-toggle"
-              id="btn-auth-password-toggle"
-              aria-label="Show password"
-              aria-pressed="false"
-            >
-              <svg class="icon-password-eye" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <svg class="icon-password-eye-off hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                <line x1="1" y1="1" x2="23" y2="23" />
-              </svg>
-            </button>
-          </span>
-        </label>
-        <p class="form-error" id="auth-error" role="alert"></p>
-        <div class="btn-row">
-          <button type="submit" class="btn btn-primary" id="btn-auth-submit">Sign in</button>
-          <button type="button" class="btn btn-secondary" id="btn-auth-toggle">Create account</button>
+    <section id="view-login" class="view login-view" hidden>
+      <div class="login-split">
+        <div class="login-hero" aria-hidden="true">
+          <div class="login-hero-brand">
+            <img
+              class="login-hero-mark"
+              src="icons/icon-512.png"
+              alt=""
+              width="40"
+              height="40"
+              decoding="async"
+            />
+            <span class="login-hero-name">Easy Billing</span>
+          </div>
+          <div class="login-hero-art">
+            <div class="login-hero-carousel" id="login-hero-carousel" aria-hidden="true">
+              <div class="login-hero-carousel-track">
+                <div
+                  class="login-hero-slide is-active"
+                  data-hero-line="Process your payments securely and instantly."
+                >
+                  <svg class="login-hero-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <ellipse cx="60" cy="100" rx="46" ry="7" fill="rgba(255,255,255,0.07)" />
+                    <rect x="26" y="72" width="68" height="9" rx="2" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" />
+                    <rect x="36" y="50" width="48" height="30" rx="4" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.88)" stroke-width="2" />
+                    <path d="M44 60h32M44 68h22" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" stroke-linecap="round" />
+                    <circle cx="82" cy="36" r="11" fill="rgba(26,31,30,0.88)" />
+                    <path d="M76 46v42h8c10 0 16-8 16-18V46z" fill="rgba(87,165,92,0.92)" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" />
+                    <path d="M70 54c-6 2-10 8-10 16" stroke="rgba(255,255,255,0.35)" stroke-width="2.2" stroke-linecap="round" fill="none" />
+                    <circle cx="34" cy="30" r="15" fill="rgba(255,255,255,0.08)" stroke="rgba(158,229,201,0.95)" stroke-width="2.2" />
+                    <text x="34" y="37" text-anchor="middle" fill="rgba(255,255,255,0.92)" font-size="17" font-weight="700" font-family="system-ui,Segoe UI,sans-serif">₹</text>
+                  </svg>
+                </div>
+                <div class="login-hero-slide" data-hero-line="Gain deep insights into your financial data.">
+                  <svg class="login-hero-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect x="22" y="28" width="76" height="54" rx="6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.88)" stroke-width="2" />
+                    <path d="M32 72h12v16H32z" fill="rgba(158,229,201,0.45)" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" />
+                    <path d="M48 64h12v24H48z" fill="rgba(158,229,201,0.65)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" />
+                    <path d="M64 56h12v32H64z" fill="rgba(158,229,201,0.85)" stroke="rgba(255,255,255,0.6)" stroke-width="1.2" />
+                    <path d="M80 68h12v20H80z" fill="rgba(158,229,201,0.55)" stroke="rgba(255,255,255,0.5)" stroke-width="1.2" />
+                    <g transform="translate(50 42)">
+                      <path
+                        d="M0 0 L0 -14 A14 14 0 0 1 12 7 Z"
+                        fill="rgba(158,229,201,0.55)"
+                        stroke="rgba(255,255,255,0.65)"
+                        stroke-width="1.2"
+                      />
+                      <path
+                        d="M0 0 L12 7 A14 14 0 0 1 0 14 Z"
+                        fill="rgba(255,255,255,0.12)"
+                        stroke="rgba(255,255,255,0.45)"
+                        stroke-width="1.2"
+                      />
+                    </g>
+                    <circle cx="72" cy="78" r="3" fill="rgba(255,255,255,0.5)" />
+                    <rect x="28" y="86" width="64" height="4" rx="1" fill="rgba(255,255,255,0.2)" />
+                  </svg>
+                </div>
+                <div class="login-hero-slide" data-hero-line="Monitor your business growth in real time.">
+                  <svg class="login-hero-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect x="24" y="32" width="72" height="52" rx="8" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.88)" stroke-width="2" />
+                    <path d="M34 78 L48 58 62 68 76 42 90 52" stroke="rgba(158,229,201,0.95)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                    <circle cx="48" cy="58" r="3.5" fill="#fff" stroke="rgba(158,229,201,0.95)" stroke-width="1.5" />
+                    <circle cx="62" cy="68" r="3.5" fill="#fff" stroke="rgba(158,229,201,0.95)" stroke-width="1.5" />
+                    <circle cx="76" cy="42" r="3.5" fill="#fff" stroke="rgba(158,229,201,0.95)" stroke-width="1.5" />
+                    <path d="M34 82h54" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linecap="round" />
+                    <path d="M34 82v-44" stroke="rgba(255,255,255,0.35)" stroke-width="1.5" stroke-linecap="round" />
+                    <path d="M28 92h64" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <div class="login-hero-slide" data-hero-line="Smart solutions for complex billing needs.">
+                  <svg class="login-hero-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <circle cx="40" cy="40" r="18" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.75)" stroke-width="2" />
+                    <text x="40" y="46" text-anchor="middle" fill="rgba(255,255,255,0.88)" font-size="18" font-weight="700" font-family="system-ui,sans-serif">₹</text>
+                    <path
+                      d="M68 52 L88 42 L98 62 L78 78 Z"
+                      fill="rgba(87,165,92,0.55)"
+                      stroke="rgba(255,255,255,0.9)"
+                      stroke-width="2.2"
+                      stroke-linejoin="round"
+                    />
+                    <circle cx="92" cy="34" r="8" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" />
+                    <path d="M90 32h4M92 30v4" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linecap="round" />
+                    <rect x="52" y="86" width="36" height="10" rx="2" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.4)" stroke-width="1.2" />
+                  </svg>
+                </div>
+                <div class="login-hero-slide" data-hero-line="Manage and finalize your invoices with ease.">
+                  <svg class="login-hero-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect x="20" y="30" width="80" height="52" rx="6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.88)" stroke-width="2" />
+                    <rect x="26" y="36" width="68" height="40" rx="3" fill="rgba(255,255,255,0.05)" />
+                    <circle cx="52" cy="56" r="14" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="3" />
+                    <circle cx="52" cy="56" r="14" fill="none" stroke="rgba(158,229,201,0.9)" stroke-width="3" stroke-dasharray="44 66" transform="rotate(-70 52 56)" />
+                    <circle cx="78" cy="56" r="12" fill="rgba(87,165,92,0.85)" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" />
+                    <path d="M74 56l3 3 7-8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M30 70h24M30 76h18" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-linecap="round" />
+                    <rect x="44" y="88" width="32" height="5" rx="1" fill="rgba(255,255,255,0.15)" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="login-hero-copy">
+            <h2 class="login-hero-title">Welcome!</h2>
+            <p class="login-hero-sub" id="login-hero-sub" aria-live="polite">
+              Process your payments securely and instantly.
+            </p>
+          </div>
+          <div class="login-hero-dots" id="login-hero-dots" role="tablist" aria-label="Hero highlights">
+            <button type="button" class="login-hero-dot is-active" role="tab" aria-selected="true" aria-label="Payments" tabindex="0"></button>
+            <button type="button" class="login-hero-dot" role="tab" aria-selected="false" aria-label="Analytics" tabindex="-1"></button>
+            <button type="button" class="login-hero-dot" role="tab" aria-selected="false" aria-label="Growth" tabindex="-1"></button>
+            <button type="button" class="login-hero-dot" role="tab" aria-selected="false" aria-label="Billing" tabindex="-1"></button>
+            <button type="button" class="login-hero-dot" role="tab" aria-selected="false" aria-label="Dashboard" tabindex="-1"></button>
+          </div>
         </div>
-      </form>
+
+        <div class="login-panel">
+          <div class="login-panel-inner">
+            <h1 class="login-title" id="login-page-title">Log in</h1>
+            <p class="login-aux">
+              <span id="auth-mode-lead">Don't have an account?</span>
+              <button type="button" class="btn-auth-inline" id="btn-auth-toggle">Create an account</button>
+            </p>
+            <p class="login-aux-muted" id="login-aux-muted">It takes less than a minute.</p>
+
+            <form id="form-auth" class="form-block login-form" novalidate>
+              <div id="auth-signup-name-wrap" class="auth-signup-fields auth-signup-fields--lead hidden" aria-hidden="true">
+                <label class="login-field login-field--labeled">
+                  <span class="login-field-label-text">Full name <span class="field-required" aria-hidden="true">*</span></span>
+                  <span class="login-input-wrap">
+                    <input
+                      type="text"
+                      id="auth-signup-fullname"
+                      name="name"
+                      autocomplete="name"
+                      maxlength="120"
+                      placeholder="Your full name"
+                    />
+                  </span>
+                </label>
+              </div>
+
+              <label class="login-field">
+                <span class="visually-hidden">Email</span>
+                <span class="login-input-wrap login-input-wrap--email">
+                  <input
+                    type="email"
+                    id="auth-email"
+                    name="email"
+                    autocomplete="email"
+                    placeholder="Email"
+                    required
+                  />
+                  <span class="login-input-suffix" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                  </span>
+                </span>
+              </label>
+              <label class="login-field">
+                <span class="visually-hidden">Password</span>
+                <span class="password-field-wrap login-input-wrap login-input-wrap--password">
+                  <input
+                    type="password"
+                    id="auth-password"
+                    name="password"
+                    autocomplete="current-password"
+                    placeholder="Password"
+                    required
+                    minlength="6"
+                  />
+                  <span class="login-input-suffix login-input-suffix--lock" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  </span>
+                  <button
+                    type="button"
+                    class="btn-password-toggle login-password-eye"
+                    id="btn-auth-password-toggle"
+                    aria-label="Show password"
+                    aria-pressed="false"
+                  >
+                    <svg class="icon-password-eye" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <svg class="icon-password-eye-off hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  </button>
+                </span>
+              </label>
+
+              <div id="auth-signup-tail-wrap" class="auth-signup-fields auth-signup-fields--tail hidden" aria-hidden="true">
+                <label class="login-field">
+                  <span class="visually-hidden">Confirm password</span>
+                  <span class="password-field-wrap login-input-wrap login-input-wrap--password">
+                    <input
+                      type="password"
+                      id="auth-password-confirm"
+                      name="password-confirm"
+                      autocomplete="new-password"
+                      placeholder="Re-enter password"
+                      minlength="6"
+                    />
+                    <span class="login-input-suffix login-input-suffix--lock" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                    </span>
+                    <button
+                      type="button"
+                      class="btn-password-toggle login-password-eye"
+                      id="btn-auth-password-confirm-toggle"
+                      aria-label="Show confirm password"
+                      aria-pressed="false"
+                    >
+                      <svg class="icon-password-eye-confirm" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                      <svg class="icon-password-eye-off-confirm hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    </button>
+                  </span>
+                </label>
+              </div>
+
+              <p class="form-error login-form-error" id="auth-error" role="alert"></p>
+              <div class="login-actions-row">
+                <button type="submit" class="btn btn-primary login-submit-btn" id="btn-auth-submit">Sign in</button>
+                <label class="login-remember">
+                  <input type="checkbox" id="auth-remember" />
+                  <span>Remember email</span>
+                </label>
+              </div>
+              <div class="login-forgot-wrap">
+                <button type="button" class="login-forgot-btn" id="auth-forgot-password">Forgot password?</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Dashboard -->

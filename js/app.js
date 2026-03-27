@@ -6,6 +6,7 @@ import {
   signUpUser,
   signInUser,
   signOutUser,
+  sendPasswordResetToEmail,
   loadUserSettings,
   saveUserSettings,
 } from "./auth.js";
@@ -476,6 +477,7 @@ function showView(name) {
   hideAllViews();
   const v = views[name];
   if (v) v.hidden = false;
+  document.body.classList.toggle("login-screen-active", name === "login");
 }
 
 function parseHash() {
@@ -657,6 +659,47 @@ function isConfigPlaceholder() {
   );
 }
 
+const AUTH_REMEMBER_EMAIL_KEY = "easybilling_remember_email";
+
+function setupLoginHeroCarousel() {
+  const section = document.getElementById("view-login");
+  const slides = section?.querySelectorAll(".login-hero-slide");
+  const dots = section?.querySelectorAll(".login-hero-dot");
+  const subEl = document.getElementById("login-hero-sub");
+  if (!section || !slides?.length || !dots?.length) return;
+
+  const n = slides.length;
+  let i = 0;
+
+  const go = (index) => {
+    i = ((index % n) + n) % n;
+    slides.forEach((el, j) => el.classList.toggle("is-active", j === i));
+    dots.forEach((el, j) => {
+      const on = j === i;
+      el.classList.toggle("is-active", on);
+      el.setAttribute("aria-selected", on ? "true" : "false");
+      el.tabIndex = on ? 0 : -1;
+    });
+    const line = slides[i]?.dataset?.heroLine;
+    if (subEl && line) subEl.textContent = line;
+  };
+
+  dots.forEach((dot, j) => {
+    dot.addEventListener("click", () => go(j));
+  });
+
+  const reduceMotion =
+    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduceMotion) {
+    setInterval(() => {
+      if (section.hidden) return;
+      go(i + 1);
+    }, 4500);
+  }
+
+  go(0);
+}
+
 function setupAuthForm() {
   const form = document.getElementById("form-auth");
   const err = document.getElementById("auth-error");
@@ -664,7 +707,63 @@ function setupAuthForm() {
   const btnSubmit = document.getElementById("btn-auth-submit");
   const passwordInput = document.getElementById("auth-password");
   const btnPasswordToggle = document.getElementById("btn-auth-password-toggle");
+  const authModeLead = document.getElementById("auth-mode-lead");
+  const loginTitle = document.getElementById("login-page-title");
+  const emailInput = document.getElementById("auth-email");
+  const rememberCb = document.getElementById("auth-remember");
+  const forgotBtn = document.getElementById("auth-forgot-password");
+  const signupNameWrap = document.getElementById("auth-signup-name-wrap");
+  const signupTailWrap = document.getElementById("auth-signup-tail-wrap");
+  const signupFullname = document.getElementById("auth-signup-fullname");
+  const passwordConfirmInput = document.getElementById("auth-password-confirm");
+  const btnPasswordConfirmToggle = document.getElementById("btn-auth-password-confirm-toggle");
+  const forgotWrap = document.querySelector("#form-auth .login-forgot-wrap");
+  const loginAuxMuted = document.getElementById("login-aux-muted");
   if (!form || !btnToggle || !btnSubmit) return;
+
+  function clearSignupFields() {
+    if (signupFullname) signupFullname.value = "";
+    if (passwordConfirmInput) passwordConfirmInput.value = "";
+  }
+
+  function syncAuthModeUi() {
+    const signup = !authModeSignIn;
+    btnSubmit.textContent = authModeSignIn ? "Sign in" : "Create account";
+    if (authModeLead) {
+      authModeLead.textContent = authModeSignIn
+        ? "Don't have an account?"
+        : "Already have an account?";
+    }
+    btnToggle.textContent = authModeSignIn ? "Create an account" : "Sign in";
+    if (loginTitle) loginTitle.textContent = authModeSignIn ? "Log in" : "Create account";
+    signupNameWrap?.classList.toggle("hidden", authModeSignIn);
+    signupNameWrap?.setAttribute("aria-hidden", authModeSignIn ? "true" : "false");
+    signupTailWrap?.classList.toggle("hidden", authModeSignIn);
+    signupTailWrap?.setAttribute("aria-hidden", authModeSignIn ? "true" : "false");
+    signupFullname?.toggleAttribute("required", signup);
+    passwordConfirmInput?.toggleAttribute("required", signup);
+    if (passwordInput) {
+      passwordInput.autocomplete = signup ? "new-password" : "current-password";
+    }
+    forgotWrap?.classList.toggle("hidden", signup);
+    if (loginAuxMuted) {
+      loginAuxMuted.textContent = signup
+        ? "Then add your business profile in Settings."
+        : "It takes less than a minute.";
+    }
+  }
+
+  syncAuthModeUi();
+
+  try {
+    const saved = localStorage.getItem(AUTH_REMEMBER_EMAIL_KEY);
+    if (saved && emailInput) {
+      emailInput.value = saved;
+      if (rememberCb) rememberCb.checked = true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
 
   if (passwordInput && btnPasswordToggle) {
     const eye = btnPasswordToggle.querySelector(".icon-password-eye");
@@ -685,10 +784,49 @@ function setupAuthForm() {
     syncPasswordToggleUi();
   }
 
+  if (passwordConfirmInput && btnPasswordConfirmToggle) {
+    const eyeC = btnPasswordConfirmToggle.querySelector(".icon-password-eye-confirm");
+    const eyeOffC = btnPasswordConfirmToggle.querySelector(".icon-password-eye-off-confirm");
+    const syncConfirmToggleUi = () => {
+      const visible = passwordConfirmInput.type === "text";
+      btnPasswordConfirmToggle.setAttribute("aria-pressed", visible ? "true" : "false");
+      btnPasswordConfirmToggle.setAttribute("aria-label", visible ? "Hide confirm password" : "Show confirm password");
+      if (eyeC && eyeOffC) {
+        eyeC.classList.toggle("hidden", visible);
+        eyeOffC.classList.toggle("hidden", !visible);
+      }
+    };
+    btnPasswordConfirmToggle.addEventListener("click", () => {
+      passwordConfirmInput.type = passwordConfirmInput.type === "password" ? "text" : "password";
+      syncConfirmToggleUi();
+    });
+    syncConfirmToggleUi();
+  }
+
   btnToggle.addEventListener("click", () => {
     authModeSignIn = !authModeSignIn;
-    btnSubmit.textContent = authModeSignIn ? "Sign in" : "Create account";
-    btnToggle.textContent = authModeSignIn ? "Create account" : "Already have an account? Sign in";
+    if (authModeSignIn) clearSignupFields();
+    err.textContent = "";
+    syncAuthModeUi();
+  });
+
+  forgotBtn?.addEventListener("click", async () => {
+    const email = emailInput?.value.trim() ?? "";
+    err.textContent = "";
+    if (!email) {
+      err.textContent = "Enter your email address first.";
+      return;
+    }
+    if (isConfigPlaceholder()) {
+      err.textContent = "Configure firebase-config.js with your Firebase keys first.";
+      return;
+    }
+    try {
+      await sendPasswordResetToEmail(email);
+      showToast("Check your inbox for a password reset link.");
+    } catch (ex) {
+      err.textContent = ex.message || "Could not send reset email.";
+    }
   });
 
   form.addEventListener("submit", async (e) => {
@@ -700,13 +838,78 @@ function setupAuthForm() {
     }
     const email = document.getElementById("auth-email").value.trim();
     const password = document.getElementById("auth-password").value;
+
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+    if (authModeSignIn) {
+      if (!email) {
+        err.textContent = "Enter your email address.";
+        return;
+      }
+      if (!emailOk) {
+        err.textContent = "Enter a valid email address.";
+        return;
+      }
+      if (!password) {
+        err.textContent = "Enter your password.";
+        return;
+      }
+    } else {
+      const fullName = signupFullname?.value.trim() ?? "";
+      if (!fullName) {
+        err.textContent = "Enter your full name.";
+        return;
+      }
+      if (!email) {
+        err.textContent = "Enter your email address.";
+        return;
+      }
+      if (!emailOk) {
+        err.textContent = "Enter a valid email address.";
+        return;
+      }
+      if (!password) {
+        err.textContent = "Enter a password.";
+        return;
+      }
+      if (password.length < 6) {
+        err.textContent = "Password must be at least 6 characters.";
+        return;
+      }
+      const confirm = passwordConfirmInput?.value ?? "";
+      if (!confirm) {
+        err.textContent = "Re-enter your password to confirm.";
+        return;
+      }
+      if (confirm.length < 6) {
+        err.textContent = "Confirm password must be at least 6 characters.";
+        return;
+      }
+      if (password !== confirm) {
+        err.textContent = "Password and confirm password must match.";
+        return;
+      }
+    }
+
     try {
       if (authModeSignIn) {
         await signInUser(email, password);
         showToast("Signed in successfully.");
       } else {
-        await signUpUser(email, password);
+        await signUpUser(email, password, {
+          fullName: signupFullname?.value.trim() ?? "",
+          sellerEmail: email,
+        });
         showToast("Account created successfully.");
+      }
+      try {
+        if (rememberCb?.checked) {
+          localStorage.setItem(AUTH_REMEMBER_EMAIL_KEY, email);
+        } else {
+          localStorage.removeItem(AUTH_REMEMBER_EMAIL_KEY);
+        }
+      } catch (_) {
+        /* ignore */
       }
       window.location.hash = "#/dashboard";
     } catch (ex) {
@@ -2129,6 +2332,7 @@ onUserChanged((user) => {
 });
 
 setupAuthForm();
+setupLoginHeroCarousel();
 setupSettingsForm();
 setupInvoiceForm();
 setupInvoicePreviewModal();

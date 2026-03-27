@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
@@ -24,9 +25,9 @@ export function getDb() {
   return db;
 }
 
-export async function signUpUser(email, password) {
+export async function signUpUser(email, password, profile = {}) {
   const cred = await createUserWithEmailAndPassword(auth, email, password);
-  await ensureUserDoc(cred.user.uid, cred.user.email);
+  await ensureUserDoc(cred.user.uid, cred.user.email, profile);
   return cred.user;
 }
 
@@ -39,11 +40,16 @@ export function signOutUser() {
   return signOut(auth);
 }
 
+export async function sendPasswordResetToEmail(email) {
+  await sendPasswordResetEmail(auth, email);
+}
+
 export function onUserChanged(cb) {
   return onAuthStateChanged(auth, cb);
 }
 
 const defaultSeller = {
+  fullName: "",
   sellerName: "",
   sellerSubtitle: "",
   sellerAddress: "",
@@ -66,13 +72,18 @@ const defaultSeller = {
   jurisdictionFooter: "",
 };
 
-export async function ensureUserDoc(uid, email) {
+export async function ensureUserDoc(uid, email, profile = {}) {
   const ref = doc(db, "users", uid);
   const snap = await getDoc(ref);
   if (snap.exists()) return;
+  const p = profile || {};
+  const fullName = String(p.fullName || "").trim();
+  const sellerEmail = String(p.sellerEmail || email || "").trim();
   await setDoc(ref, {
     email: email || "",
     ...defaultSeller,
+    fullName,
+    sellerEmail,
     createdAt: serverTimestamp(),
   });
 }
@@ -84,6 +95,7 @@ export async function loadUserSettings(uid) {
   const d = snap.data();
   return {
     email: d.email || "",
+    fullName: d.fullName || "",
     sellerName: d.sellerName || "",
     sellerSubtitle: d.sellerSubtitle || "",
     sellerAddress: d.sellerAddress || "",
