@@ -662,7 +662,28 @@ function setupAuthForm() {
   const err = document.getElementById("auth-error");
   const btnToggle = document.getElementById("btn-auth-toggle");
   const btnSubmit = document.getElementById("btn-auth-submit");
+  const passwordInput = document.getElementById("auth-password");
+  const btnPasswordToggle = document.getElementById("btn-auth-password-toggle");
   if (!form || !btnToggle || !btnSubmit) return;
+
+  if (passwordInput && btnPasswordToggle) {
+    const eye = btnPasswordToggle.querySelector(".icon-password-eye");
+    const eyeOff = btnPasswordToggle.querySelector(".icon-password-eye-off");
+    const syncPasswordToggleUi = () => {
+      const visible = passwordInput.type === "text";
+      btnPasswordToggle.setAttribute("aria-pressed", visible ? "true" : "false");
+      btnPasswordToggle.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+      if (eye && eyeOff) {
+        eye.classList.toggle("hidden", visible);
+        eyeOff.classList.toggle("hidden", !visible);
+      }
+    };
+    btnPasswordToggle.addEventListener("click", () => {
+      passwordInput.type = passwordInput.type === "password" ? "text" : "password";
+      syncPasswordToggleUi();
+    });
+    syncPasswordToggleUi();
+  }
 
   btnToggle.addEventListener("click", () => {
     authModeSignIn = !authModeSignIn;
