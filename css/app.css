@@ -72,6 +72,112 @@ body.app-loading-active {
   text-decoration: underline;
 }
 
+.nav-auth a.nav-link--active {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* Breadcrumb bar (below header) */
+.app-breadcrumbs {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0;
+  font-size: 0.875rem;
+}
+
+.breadcrumb-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+}
+
+.breadcrumb-item + .breadcrumb-item::before {
+  content: "/";
+  display: inline-block;
+  margin: 0 0.45rem;
+  color: #a8b0ac;
+  font-weight: 300;
+  font-size: 0.9em;
+}
+
+.breadcrumb-item a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.breadcrumb-item a:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.breadcrumb-loading {
+  color: var(--muted);
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* Inline links in hints / empty states */
+.text-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
+.page-quick-links {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.page-quick-sep {
+  margin: 0 0.35rem;
+  color: #b8c0bc;
+}
+
+@media (max-width: 640px) {
+  #footer-quick-nav {
+    display: none !important;
+  }
+
+  .page-quick-links {
+    font-size: 0.8125rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.45;
+  }
+
+  .page-quick-sep {
+    margin: 0 0.22rem;
+  }
+}
+
+.customer-name-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.customer-name-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
 .hidden {
   display: none !important;
 }
@@ -1022,6 +1128,7 @@ h1 {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--inv-tally-blue, #0d3b66);
 }
 
 .gst-invoice .inv-einv-strip {
@@ -1075,6 +1182,7 @@ h1 {
 /* Invoice meta block: HTML table + real borders (matches line-items grid; prints without background graphics) */
 .gst-invoice {
   --inv-meta-grid-line: #000;
+  --inv-tally-blue: #0d3b66;
   --inv-meta-cell-pad-y: 0.5rem;
   --inv-meta-cell-pad-x: 0.65rem;
 }
@@ -1116,6 +1224,7 @@ h1 {
   min-width: 0;
   max-width: 52%;
   white-space: normal;
+  color: var(--inv-tally-blue, #0d3b66);
 }
 
 .gst-invoice .inv-meta-cell .mv {
@@ -1278,8 +1387,10 @@ h1 {
 .gst-invoice.invoice-a4-compact.invoice-a4-single {
   --inv-ink: #000;
   --inv-meta-grid-line: #000;
+  --inv-tally-blue: #0d3b66;
   font-size: 6.5pt;
   line-height: 1.2;
+  font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   /* Fixed width so layout matches print/desktop; narrow viewports scroll horizontally */
   width: 180mm;
   min-width: 180mm;
@@ -1289,6 +1400,7 @@ h1 {
   padding: 3mm 4mm 4mm;
   min-height: 0;
   box-sizing: border-box;
+  border: 1px solid var(--inv-ink);
 }
 
 .gst-invoice.invoice-a4-single .inv-top-title {
@@ -1298,7 +1410,7 @@ h1 {
 }
 
 .gst-invoice.invoice-a4-single .inv-bill-header-grid {
-  gap: 0.3rem 0.35rem;
+  gap: 0 0.35rem;
   padding-bottom: 0.3rem;
   margin-bottom: 0.35rem;
   border-bottom-width: 1px;
@@ -1467,6 +1579,8 @@ h1 {
 .gst-invoice.invoice-a4-single .inv-print-table th {
   padding: 0.12rem 0.18rem;
   font-size: 6.5pt;
+  background: #fff;
+  color: var(--inv-tally-blue, #0d3b66);
 }
 
 .gst-invoice.invoice-a4-single .c-desc {
@@ -1540,48 +1654,49 @@ h1 {
   margin-top: 0.25rem;
 }
 
+/* Tally-style: one row, ~45% / ~55% — left = seller + parties; right = meta + terms */
 .gst-invoice .inv-bill-header-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
-  grid-template-rows: auto auto;
-  gap: 0.65rem 0.85rem;
+  grid-template-columns: minmax(0, 0.45fr) minmax(0, 0.55fr);
+  grid-template-rows: auto;
+  gap: 0 0.5rem;
   align-items: stretch;
   border-bottom: 1px solid var(--inv-meta-grid-line);
-  padding-bottom: 0.65rem;
-  margin-bottom: 0.65rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.45rem;
 }
 
-.gst-invoice .inv-bill-top-left,
-.gst-invoice .inv-bill-top-right {
-  align-self: start;
-}
-
-.gst-invoice .inv-bill-bottom-left,
-.gst-invoice .inv-bill-bottom-right {
-  min-height: 0;
-}
-
-.gst-invoice .inv-bill-bottom-right {
+.gst-invoice .inv-tally-left-col {
   display: flex;
   flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.gst-invoice .inv-tally-left-col .inv-seller {
+  padding-bottom: 0.15rem;
+}
+
+.gst-invoice .inv-tally-right-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   align-items: stretch;
+  align-self: stretch;
 }
 
-.gst-invoice .inv-bill-top-right {
+.gst-invoice .inv-tally-right-col .inv-meta-print-table {
+  flex: 0 0 auto;
   width: 100%;
-  text-align: left;
 }
 
-.gst-invoice .inv-mid-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  min-height: 0;
-}
-
-.gst-invoice .inv-mid-left .inv-block {
+.gst-invoice .inv-tally-right-col .inv-terms-delivery-aside {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 3.5rem;
+  border-top: none;
+  border-left: 1px solid var(--inv-meta-grid-line);
+  border-right: 1px solid var(--inv-meta-grid-line);
+  border-bottom: 1px solid var(--inv-meta-grid-line);
 }
 
 .gst-invoice .inv-title {
@@ -1677,7 +1792,7 @@ h1 {
 /* Same Tally-style grid on phones as on desktop (do not stack header/footer columns) */
 @media (max-width: 520px) {
   .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-bill-header-grid {
-    grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
+    grid-template-columns: minmax(0, 0.45fr) minmax(0, 0.55fr);
   }
 
   .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-two-col {
@@ -1692,7 +1807,34 @@ h1 {
 .gst-invoice .inv-block {
   border: 1px solid #000;
   padding: 0.5rem 0.65rem;
-  border-radius: 4px;
+  border-radius: 0;
+  background: #fff;
+}
+
+.gst-invoice .block-label {
+  color: var(--inv-tally-blue, #0d3b66);
+}
+
+.gst-invoice .inv-title-center,
+.gst-invoice .inv-co-name {
+  color: var(--inv-tally-blue, #0d3b66);
+}
+
+.gst-invoice .inv-print-table th {
+  background: #fff;
+  color: var(--inv-tally-blue, #0d3b66);
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.gst-invoice .inv-print-table.inv-items th {
+  font-size: 0.72rem;
+}
+
+.gst-invoice .inv-hsn-sum .inv-hsn-caption {
+  color: var(--inv-tally-blue, #0d3b66);
+  font-weight: 700;
 }
 
 .gst-invoice .inv-note {
@@ -1774,14 +1916,16 @@ h1 {
 .gst-invoice .sig-customer {
   flex: 1;
   min-height: 72px;
-  border-top: 1px solid #000;
-  padding-top: 0.35rem;
+  border: 1px solid #000;
+  padding: 0.35rem 0.45rem 0.5rem;
+  box-sizing: border-box;
 }
 
 .gst-invoice .sig-box {
   flex: 1;
   text-align: right;
   border-top: none;
+  padding-top: 0.25rem;
 }
 
 .gst-invoice .sig-line {
@@ -1891,10 +2035,31 @@ h1 {
 }
 
 .app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
   padding: 1rem;
   text-align: center;
   border-top: 1px solid var(--border);
   background: var(--surface);
+}
+
+.app-footer-brand {
+  display: inline-block;
+}
+
+.app-footer-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  margin: 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.app-footer-nav a:hover {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
 @media print {
@@ -1957,6 +2122,7 @@ h1 {
   }
 
   .app-header,
+  .app-breadcrumbs,
   .app-footer {
     display: none !important;
   }

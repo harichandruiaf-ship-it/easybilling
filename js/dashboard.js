@@ -450,8 +450,30 @@ export async function mountDashboard(db, uid) {
 
   destroyCharts();
 
-  const [invoices, customers] = await Promise.all([listInvoicesForUser(db, uid), listCustomers(db, uid)]);
-  const a = computeAnalytics(invoices, customers);
+  let invoices;
+  let customers;
+  try {
+    [invoices, customers] = await Promise.all([listInvoicesForUser(db, uid), listCustomers(db, uid)]);
+  } catch (ex) {
+    const msg =
+      ex && ex.code === "permission-denied"
+        ? "Could not load dashboard data. Check Firestore rules."
+        : ex && ex.message
+          ? String(ex.message)
+          : "Could not load dashboard.";
+    root.innerHTML = `<div class="card dashboard-error"><p class="muted">${escapeHtml(msg)}</p><p class="small"><a href="#/history">Invoice history</a> · <a href="#/settings">Settings</a></p></div>`;
+    console.error("[mountDashboard]", ex);
+    return;
+  }
+
+  let a;
+  try {
+    a = computeAnalytics(invoices, customers);
+  } catch (ex) {
+    root.innerHTML = `<div class="card dashboard-error"><p class="muted">Could not compute analytics.</p></div>`;
+    console.error("[computeAnalytics]", ex);
+    return;
+  }
   lastAnalytics = a;
 
   const k = a.kpis;
@@ -517,7 +539,15 @@ export async function mountDashboard(db, uid) {
   `;
 
   if (!empty) {
-    renderChartsInRoot(root, a);
+    try {
+      renderChartsInRoot(root, a);
+    } catch (ex) {
+      const slot = root.querySelector("#dashboard-charts-slot");
+      if (slot) {
+        slot.innerHTML = `<p class="muted">Charts could not be drawn. Try refreshing the page.</p>`;
+      }
+      console.error("[dashboard charts]", ex);
+    }
   }
 
   root.onclick = (e) => {

@@ -132,6 +132,18 @@ export function initInvoiceForm(opts) {
   const tbody = document.getElementById("items-tbody");
   const btnAdd = document.getElementById("btn-add-item");
   const form = document.getElementById("form-invoice");
+  if (!tbody || !btnAdd || !form) {
+    console.warn("initInvoiceForm: missing invoice form DOM.");
+    return {
+      resetForm() {},
+      recalcTotals() {},
+      setTaxRates() {},
+      populateFromInvoice() {},
+      ensureOneRow() {},
+      async selectCustomerById() {},
+      setCustomerOptions() {},
+    };
+  }
   const customerSearchInput = document.getElementById("inv-customer-search");
   const customerIdHidden = document.getElementById("inv-customer-id");
   const listbox = document.getElementById("inv-customer-listbox");
@@ -207,10 +219,11 @@ export function initInvoiceForm(opts) {
     if (picked) customerSearchInput.value = picked.name || "";
 
     if (opts.loadCustomer) {
-      await withLoading(async () => {
-        const c = await opts.loadCustomer(id);
-        if (!c) return;
-        document.getElementById("inv-buyer-name").value = c.name || "";
+      try {
+        await withLoading(async () => {
+          const c = await opts.loadCustomer(id);
+          if (!c) return;
+          document.getElementById("inv-buyer-name").value = c.name || "";
         document.getElementById("inv-buyer-address").value = c.address || "";
         document.getElementById("inv-buyer-phone").value = c.phone || "";
         document.getElementById("inv-buyer-gstin").value = c.gstin || "";
@@ -232,7 +245,12 @@ export function initInvoiceForm(opts) {
           document.getElementById("inv-consignee-phone").value = c.consigneePhone || "";
           document.getElementById("inv-consignee-email").value = c.consigneeEmail || "";
         }
-      }, "Loading customer…");
+        }, "Loading customer…");
+      } catch (ex) {
+        const errEl = document.getElementById("invoice-form-error");
+        const msg = ex && ex.message ? String(ex.message) : "Could not load customer.";
+        if (errEl) errEl.textContent = msg;
+      }
     }
     closeCustomerListbox();
   }
@@ -282,8 +300,10 @@ export function initInvoiceForm(opts) {
       cgstPercent: Number(cgstPercent) || 0,
       sgstPercent: Number(sgstPercent) || 0,
     };
-    document.getElementById("tot-cgst-label").textContent = `CGST (${taxRates.cgstPercent}%)`;
-    document.getElementById("tot-sgst-label").textContent = `SGST (${taxRates.sgstPercent}%)`;
+    const cgL = document.getElementById("tot-cgst-label");
+    const sgL = document.getElementById("tot-sgst-label");
+    if (cgL) cgL.textContent = `CGST (${taxRates.cgstPercent}%)`;
+    if (sgL) sgL.textContent = `SGST (${taxRates.sgstPercent}%)`;
     recalcTotals();
   }
 
@@ -299,10 +319,14 @@ export function initInvoiceForm(opts) {
     });
     sub = round2(sub);
     const t = computeTotals(sub, taxRates.cgstPercent, taxRates.sgstPercent);
-    document.getElementById("tot-sub").textContent = t.subtotal.toFixed(2);
-    document.getElementById("tot-cgst").textContent = t.cgst.toFixed(2);
-    document.getElementById("tot-sgst").textContent = t.sgst.toFixed(2);
-    document.getElementById("tot-total").textContent = t.total.toFixed(2);
+    const elSub = document.getElementById("tot-sub");
+    const elCgst = document.getElementById("tot-cgst");
+    const elSgst = document.getElementById("tot-sgst");
+    const elTot = document.getElementById("tot-total");
+    if (elSub) elSub.textContent = t.subtotal.toFixed(2);
+    if (elCgst) elCgst.textContent = t.cgst.toFixed(2);
+    if (elSgst) elSgst.textContent = t.sgst.toFixed(2);
+    if (elTot) elTot.textContent = t.total.toFixed(2);
     return t;
   }
 
@@ -499,7 +523,8 @@ export function initInvoiceForm(opts) {
       return;
     }
     if (opts.onPreview) {
-      await opts.onPreview({
+      try {
+        await opts.onPreview({
         customerName: buyerName,
         buyerAddress,
         buyerPhone,
@@ -554,6 +579,10 @@ export function initInvoiceForm(opts) {
         cgstPercent: totals.cgstPercent,
         sgstPercent: totals.sgstPercent,
       });
+      } catch (ex) {
+        const msg = ex && ex.message ? String(ex.message) : "Could not open preview.";
+        errEl.textContent = msg;
+      }
     }
   });
 

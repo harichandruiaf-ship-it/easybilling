@@ -395,7 +395,9 @@ function renderHistoryListRows(rows) {
   const total = historyCache?.length ?? 0;
   if (!rows.length) {
     emptyEl.hidden = false;
-    emptyEl.textContent = total ? "No invoices match your filters." : "No invoices yet.";
+    emptyEl.innerHTML = total
+      ? 'No invoices match your filters. Use <strong>Clear all</strong> above or adjust search and filters.'
+      : 'No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.';
     if (countEl) {
       countEl.hidden = true;
       countEl.textContent = "";
@@ -418,7 +420,9 @@ function renderHistoryListRows(rows) {
     a.classList.add("history-inv-card");
     const dateStr = formatInvoiceDate(row.date);
     const badge = historyPaymentStatusBadge(row.paymentStatus);
-    a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Payment status: ${escapeHtml(badge.label)}">${escapeHtml(badge.label)}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}</span><div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${Number(row.total).toFixed(2)}</span></div>`;
+    const tot = Number(row.total);
+    const totStr = Number.isFinite(tot) ? tot.toFixed(2) : "0.00";
+    a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Payment status: ${escapeHtml(badge.label)}">${escapeHtml(badge.label)}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}</span><div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${totStr}</span></div>`;
     li.appendChild(a);
     listEl.appendChild(li);
   }
@@ -455,6 +459,12 @@ let customersSearchDebounce = null;
 
 /** Filled when the Customers page loads; used by the “Show invoices” modal. */
 let customerInvoicesByCustomerIdCache = new Map();
+
+/** Invoice number (or fallback) for breadcrumb on invoice view. */
+let invoiceBreadcrumbLabel = null;
+
+/** Breadcrumb state on invoice route: loading → ready | error. */
+let invoiceBreadcrumbState = null;
 
 function hideAllViews() {
   Object.values(views).forEach((el) => {
@@ -504,113 +514,138 @@ function setCreatePageEditMode(isEdit, invoiceNumberHint) {
 
 async function route() {
   const { route: r, id, customerId, editId } = parseHash();
-
-  if (r !== "dashboard") {
-    closeDashboardDetail();
+  if (r !== "invoice") {
+    invoiceBreadcrumbLabel = null;
+    invoiceBreadcrumbState = null;
   }
 
-  if (r !== "create") {
-    closeInvoicePreviewModal();
-    pendingInvoicePayload = null;
-    editingInvoiceId = null;
-    editingInvoiceSnapshot = null;
-  }
-
-  if (r !== "customers") {
-    closeCustomerEditModal();
-    closeCustomerPaymentModal();
-    closeCustomerInvoicesModal();
-  }
-
-  if (shouldForceLoginView(currentUser)) {
-    navMain.classList.add("hidden");
-    showView("login");
-    return;
-  }
-
-  navMain.classList.remove("hidden");
-
-  if (r === "login") {
-    window.location.hash = "#/dashboard";
-    return;
-  }
-
-  if (r === "settings") {
-    showView("settings");
-    await withLoading(() => fillSettingsForm(), "Loading settings…");
-    return;
-  }
-
-  if (r === "customers") {
-    showView("customers");
-    await withLoading(() => renderCustomersPage(), "Loading customers…");
-    return;
-  }
-
-  if (r === "create") {
-    showView("create");
-    if (invoiceFormApi && currentUser) {
-      await withLoading(async () => {
-        const s = await loadUserSettings(currentUser.uid);
-        invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
-        const list = await listCustomers(db, currentUser.uid);
-        invoiceFormApi.setCustomerOptions(list);
-
-        if (editId) {
-          const inv = await getInvoiceById(db, editId);
-          if (!inv || inv.userId !== currentUser.uid) {
-            showToast("Invoice not found.", { type: "error" });
-            editingInvoiceId = null;
-            editingInvoiceSnapshot = null;
-            window.location.hash = "#/history";
-            return;
-          }
-          editingInvoiceId = editId;
-          editingInvoiceSnapshot = inv;
-          const oldNet = round2(Number(inv.total) || 0) - round2(Number(inv.amountPaidOnInvoice) || 0);
-          let openingBefore = null;
-          if (inv.customerId) {
-            const c = await getCustomerById(db, inv.customerId);
-            const b = round2(Number(c?.outstandingBalance) || 0);
-            openingBefore = round2(b - oldNet);
-          }
-          invoiceFormApi.populateFromInvoice(inv, { openingBeforeInvoice: openingBefore });
-          setCreatePageEditMode(true, inv.invoiceNumber);
-        } else {
-          editingInvoiceId = null;
-          editingInvoiceSnapshot = null;
-          invoiceFormApi.resetForm();
-          setCreatePageEditMode(false);
-          try {
-            if (customerId && list.some((c) => c.id === customerId)) {
-              await invoiceFormApi.selectCustomerById(customerId);
-            }
-          } catch (_) {
-            /* ignore customer load failure */
-          }
-          invoiceFormApi.ensureOneRow();
-          invoiceFormApi.recalcTotals();
-        }
-      }, "Loading…");
+  try {
+    if (r !== "dashboard") {
+      closeDashboardDetail();
     }
-    return;
-  }
 
-  if (r === "history") {
-    showView("history");
-    await withLoading(() => renderHistory(), "Loading invoices…");
-    return;
-  }
+    if (r !== "create") {
+      closeInvoicePreviewModal();
+      pendingInvoicePayload = null;
+      editingInvoiceId = null;
+      editingInvoiceSnapshot = null;
+    }
 
-  if (r === "invoice" && id) {
-    showView("invoice");
-    await withLoading(() => renderInvoicePage(id), "Loading invoice…");
-    return;
-  }
+    if (r !== "customers") {
+      closeCustomerEditModal();
+      closeCustomerPaymentModal();
+      closeCustomerInvoicesModal();
+    }
 
-  showView("dashboard");
-  if (currentUser) {
-    await withLoading(() => mountDashboard(db, currentUser.uid), "Loading dashboard…");
+    if (shouldForceLoginView(currentUser)) {
+      navMain?.classList.add("hidden");
+      showView("login");
+      return;
+    }
+
+    navMain?.classList.remove("hidden");
+
+    if (r === "login") {
+      window.location.hash = "#/dashboard";
+      return;
+    }
+
+    if (r === "settings") {
+      showView("settings");
+      await runRouteStep("settings", () => withLoading(() => fillSettingsForm(), "Loading settings…"));
+      return;
+    }
+
+    if (r === "customers") {
+      showView("customers");
+      await runRouteStep("customers", () => withLoading(() => renderCustomersPage(), "Loading customers…"));
+      return;
+    }
+
+    if (r === "create") {
+      showView("create");
+      if (invoiceFormApi && currentUser) {
+        await runRouteStep("create", () =>
+          withLoading(async () => {
+            const s = await loadUserSettings(currentUser.uid);
+            invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
+            const list = await listCustomers(db, currentUser.uid);
+            invoiceFormApi.setCustomerOptions(list);
+
+            if (editId) {
+              const inv = await getInvoiceById(db, editId);
+              if (!inv || inv.userId !== currentUser.uid) {
+                showToast("Invoice not found.", { type: "error" });
+                editingInvoiceId = null;
+                editingInvoiceSnapshot = null;
+                window.location.hash = "#/history";
+                return;
+              }
+              editingInvoiceId = editId;
+              editingInvoiceSnapshot = inv;
+              const oldNet = round2(Number(inv.total) || 0) - round2(Number(inv.amountPaidOnInvoice) || 0);
+              let openingBefore = null;
+              if (inv.customerId) {
+                try {
+                  const c = await getCustomerById(db, inv.customerId);
+                  const b = round2(Number(c?.outstandingBalance) || 0);
+                  openingBefore = round2(b - oldNet);
+                } catch (_) {
+                  /* ignore customer read for opening balance */
+                }
+              }
+              invoiceFormApi.populateFromInvoice(inv, { openingBeforeInvoice: openingBefore });
+              setCreatePageEditMode(true, inv.invoiceNumber);
+            } else {
+              editingInvoiceId = null;
+              editingInvoiceSnapshot = null;
+              invoiceFormApi.resetForm();
+              setCreatePageEditMode(false);
+              try {
+                if (customerId && list.some((c) => c.id === customerId)) {
+                  await invoiceFormApi.selectCustomerById(customerId);
+                }
+              } catch (_) {
+                /* ignore customer load failure */
+              }
+              invoiceFormApi.ensureOneRow();
+              invoiceFormApi.recalcTotals();
+            }
+          }, "Loading…")
+        );
+      }
+      return;
+    }
+
+    if (r === "history") {
+      showView("history");
+      await runRouteStep("history", () => withLoading(() => renderHistory(), "Loading invoices…"));
+      return;
+    }
+
+    if (r === "invoice" && id) {
+      invoiceBreadcrumbState = "loading";
+      invoiceBreadcrumbLabel = null;
+      showView("invoice");
+      syncAppChrome();
+      await runRouteStep("invoice", () => withLoading(() => renderInvoicePage(id), "Loading invoice…"));
+      return;
+    }
+
+    showView("dashboard");
+    if (currentUser) {
+      await runRouteStep("dashboard", () => withLoading(() => mountDashboard(db, currentUser.uid), "Loading dashboard…"));
+    }
+  } catch (ex) {
+    showToast(formatAppError(ex, "Navigation failed."), { type: "error" });
+    console.error("[route]", ex);
+  } finally {
+    const { route: rDone, id: idDone } = parseHash();
+    if (rDone === "invoice" && idDone && invoiceBreadcrumbState === "loading") {
+      invoiceBreadcrumbState = "error";
+    }
+    syncAppChrome();
+    requestAnimationFrame(() => focusVisiblePageHeading());
   }
 }
 
@@ -627,6 +662,7 @@ function setupAuthForm() {
   const err = document.getElementById("auth-error");
   const btnToggle = document.getElementById("btn-auth-toggle");
   const btnSubmit = document.getElementById("btn-auth-submit");
+  if (!form || !btnToggle || !btnSubmit) return;
 
   btnToggle.addEventListener("click", () => {
     authModeSignIn = !authModeSignIn;
@@ -660,39 +696,53 @@ function setupAuthForm() {
 
 async function fillSettingsForm() {
   if (!currentUser) return;
-  const s = await loadUserSettings(currentUser.uid);
-  document.getElementById("set-name").value = s.sellerName || "";
-  document.getElementById("set-subtitle").value = s.sellerSubtitle || "";
-  document.getElementById("set-address").value = s.sellerAddress || "";
-  document.getElementById("set-phone").value = s.sellerPhone || "";
-  document.getElementById("set-gstin").value = s.sellerGstin || "";
-  document.getElementById("set-email").value = s.sellerEmail || "";
-  document.getElementById("set-state-name").value = s.sellerStateName || "";
-  document.getElementById("set-state-code").value = s.sellerStateCode || "";
-  document.getElementById("set-pan").value = s.sellerPan || "";
-  document.getElementById("set-udyam").value = s.sellerUdyam || "";
-  document.getElementById("set-contact-extra").value = s.sellerContactExtra || "";
-  document.getElementById("set-cgst-pct").value = String(s.cgstPercent ?? 2.5);
-  document.getElementById("set-sgst-pct").value = String(s.sgstPercent ?? 2.5);
-  document.getElementById("set-acc-holder").value = s.accountHolderName || "";
-  document.getElementById("set-bank-name").value = s.bankName || "";
-  document.getElementById("set-bank-branch").value = s.bankBranch || "";
-  document.getElementById("set-bank-account").value = s.bankAccount || "";
-  document.getElementById("set-bank-ifsc").value = s.bankIfsc || "";
-  document.getElementById("set-jurisdiction").value = s.jurisdictionFooter || "";
-  document.getElementById("set-terms").value = s.invoiceTerms || "";
-  document.getElementById("settings-error").textContent = "";
-  document.getElementById("settings-success").textContent = "";
+  let s;
+  try {
+    s = await loadUserSettings(currentUser.uid);
+  } catch (ex) {
+    const errEl = document.getElementById("settings-error");
+    if (errEl) errEl.textContent = formatAppError(ex, "Could not load settings.");
+    return;
+  }
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v ?? "";
+  };
+  setVal("set-name", s.sellerName);
+  setVal("set-subtitle", s.sellerSubtitle);
+  setVal("set-address", s.sellerAddress);
+  setVal("set-phone", s.sellerPhone);
+  setVal("set-gstin", s.sellerGstin);
+  setVal("set-email", s.sellerEmail);
+  setVal("set-state-name", s.sellerStateName);
+  setVal("set-state-code", s.sellerStateCode);
+  setVal("set-pan", s.sellerPan);
+  setVal("set-udyam", s.sellerUdyam);
+  setVal("set-contact-extra", s.sellerContactExtra);
+  setVal("set-cgst-pct", String(s.cgstPercent ?? 2.5));
+  setVal("set-sgst-pct", String(s.sgstPercent ?? 2.5));
+  setVal("set-acc-holder", s.accountHolderName);
+  setVal("set-bank-name", s.bankName);
+  setVal("set-bank-branch", s.bankBranch);
+  setVal("set-bank-account", s.bankAccount);
+  setVal("set-bank-ifsc", s.bankIfsc);
+  setVal("set-jurisdiction", s.jurisdictionFooter);
+  setVal("set-terms", s.invoiceTerms);
+  const errOk = document.getElementById("settings-error");
+  const okOk = document.getElementById("settings-success");
+  if (errOk) errOk.textContent = "";
+  if (okOk) okOk.textContent = "";
 }
 
 function setupSettingsForm() {
   const form = document.getElementById("form-settings");
+  if (!form) return;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = document.getElementById("settings-error");
     const okEl = document.getElementById("settings-success");
-    errEl.textContent = "";
-    okEl.textContent = "";
+    if (errEl) errEl.textContent = "";
+    if (okEl) okEl.textContent = "";
     if (!currentUser) return;
 
     const sellerName = document.getElementById("set-name").value.trim();
@@ -755,6 +805,26 @@ function firestorePermissionHint(ex) {
     return `Permission denied — Firestore rules are missing or not published for project “${pid}”. Open Rules, paste all of firestore.rules, click Publish: ${rulesUrl}`;
   }
   return "";
+}
+
+/** User-facing message for any thrown error (routing, Firestore, PDF, etc.). */
+function formatAppError(ex, fallback) {
+  return firestorePermissionHint(ex) || (ex && ex.message) || fallback || "Something went wrong.";
+}
+
+/**
+ * Wraps route handlers so one failure does not leave an unhandled rejection.
+ * @param {string} context
+ * @param {() => Promise<void>} fn
+ */
+async function runRouteStep(context, fn) {
+  try {
+    await fn();
+  } catch (ex) {
+    const msg = formatAppError(ex, "Could not load this page.");
+    showToast(msg, { type: "error" });
+    console.error(`[${context}]`, ex);
+  }
 }
 
 function mergeSellerIntoInvoicePayload(payload, seller) {
@@ -1062,7 +1132,13 @@ async function openCustomerEditModal(customerId) {
   const errEl = document.getElementById("edit-customer-error");
   if (errEl) errEl.textContent = "";
 
-  const c = await withLoading(() => getCustomerById(db, customerId), "Loading…");
+  let c;
+  try {
+    c = await withLoading(() => getCustomerById(db, customerId), "Loading…");
+  } catch (ex) {
+    showToast(formatAppError(ex, "Could not load customer."), { type: "error" });
+    return;
+  }
   if (!c) {
     showToast("Customer not found.", { type: "error" });
     return;
@@ -1098,9 +1174,10 @@ async function openCustomerEditModal(customerId) {
   }
 
   const modal = document.getElementById("customer-edit-modal");
+  if (!modal) return;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  document.getElementById("edit-cust-name").focus();
+  document.getElementById("edit-cust-name")?.focus();
 }
 
 function closeCustomerPaymentModal() {
@@ -1123,7 +1200,13 @@ async function openCustomerPaymentModal(customerId) {
   const errEl = document.getElementById("customer-payment-error");
   if (errEl) errEl.textContent = "";
 
-  const c = await withLoading(() => getCustomerById(db, customerId), "Loading…");
+  let c;
+  try {
+    c = await withLoading(() => getCustomerById(db, customerId), "Loading…");
+  } catch (ex) {
+    showToast(formatAppError(ex, "Could not load customer."), { type: "error" });
+    return;
+  }
   if (!c) {
     showToast("Customer not found.", { type: "error" });
     return;
@@ -1439,18 +1522,21 @@ function renderCustomersListFromCache() {
   const all = customersPageCache;
   if (!all || !all.length) {
     emptyEl.hidden = false;
-    emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
+    emptyEl.innerHTML =
+      'No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.';
     return;
   }
   const q = document.getElementById("customers-search")?.value ?? "";
   const rows = all.filter((row) => matchesSearchTokens(customerSearchBlob(row), q));
   if (!rows.length) {
     emptyEl.hidden = false;
-    emptyEl.textContent = "No customers match your search.";
+    emptyEl.innerHTML =
+      'No customers match your search. Clear the search box above to see all customers.';
     return;
   }
   emptyEl.hidden = true;
-  emptyEl.textContent = "No customers yet. Create an invoice and save a new buyer.";
+  emptyEl.innerHTML =
+    'No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.';
   for (const row of rows) {
     const li = document.createElement("li");
     li.className = "customer-row";
@@ -1459,7 +1545,7 @@ function renderCustomersListFromCache() {
     const ob = round2(Number(row.outstandingBalance) || 0);
     const custName = row.name || "";
     li.innerHTML = `<div class="customer-card">
-      <strong>${escapeHtml(custName)}</strong>
+      <strong><a href="#/create?customer=${encodeURIComponent(row.id)}" class="customer-name-link">${escapeHtml(custName)}</a></strong>
       <div class="meta">${phone} · ${addr}${(row.address || "").length > 80 ? "…" : ""}</div>
       <div class="meta"><span>Outstanding: ₹ ${ob.toFixed(2)}</span></div>
       <div class="btn-row customer-card-actions">
@@ -1553,6 +1639,7 @@ async function renderHistory() {
   const listEl = document.getElementById("history-list");
   const emptyEl = document.getElementById("history-empty");
   const countEl = document.getElementById("history-count");
+  if (!listEl || !emptyEl) return;
   listEl.innerHTML = "";
   historyCache = null;
   if (countEl) {
@@ -1578,7 +1665,8 @@ async function renderHistory() {
   historyCache = rows;
   wireHistoryFilters();
   populateHistoryCustomerOptions(customers, rows);
-  emptyEl.textContent = "No invoices yet.";
+  emptyEl.innerHTML =
+    'No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.';
   applyHistoryFilters();
 }
 
@@ -1588,6 +1676,120 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function updateNavActive(routeName) {
+  const nav = document.getElementById("nav-main");
+  if (!nav) return;
+  nav.querySelectorAll("[data-nav-route]").forEach((el) => el.classList.remove("nav-link--active"));
+  if (!routeName) return;
+  const key = routeName === "invoice" ? "history" : routeName;
+  const link = nav.querySelector(`[data-nav-route="${key}"]`);
+  if (link) link.classList.add("nav-link--active");
+}
+
+/**
+ * Breadcrumbs, footer quick links, and main nav active state (call after route resolves).
+ */
+function syncAppChrome() {
+  const bc = document.getElementById("app-breadcrumbs");
+  const listEl = document.getElementById("breadcrumb-list");
+  const footNav = document.getElementById("footer-quick-nav");
+  if (!bc || !listEl) return;
+
+  if (shouldForceLoginView(currentUser)) {
+    bc.classList.add("hidden");
+    bc.setAttribute("aria-hidden", "true");
+    if (footNav) footNav.classList.add("hidden");
+    updateNavActive(null);
+    return;
+  }
+
+  bc.classList.remove("hidden");
+  bc.setAttribute("aria-hidden", "false");
+  if (footNav) footNav.classList.remove("hidden");
+
+  const { route: r, id, editId } = parseHash();
+  const segments = [{ href: "#/dashboard", label: "Home" }];
+  switch (r) {
+    case "dashboard":
+      segments.push({ current: true, label: "Dashboard" });
+      break;
+    case "settings":
+      segments.push({ current: true, label: "Seller settings" });
+      break;
+    case "customers":
+      segments.push({ current: true, label: "Customers" });
+      break;
+    case "history":
+      segments.push({ current: true, label: "Invoice history" });
+      break;
+    case "create":
+      segments.push({ current: true, label: editId ? "Edit invoice" : "New invoice" });
+      break;
+    case "invoice":
+      if (id) {
+        segments.push({ href: "#/history", label: "Invoice history" });
+        if (invoiceBreadcrumbState === "loading") {
+          segments.push({ current: true, label: "Loading…", loading: true });
+        } else if (invoiceBreadcrumbState === "error") {
+          segments.push({ current: true, label: "Unable to load" });
+        } else {
+          segments.push({ current: true, label: invoiceBreadcrumbLabel || "Invoice" });
+        }
+      } else {
+        segments.push({ current: true, label: "Dashboard" });
+      }
+      break;
+    default:
+      segments.push({ current: true, label: "Dashboard" });
+  }
+
+  listEl.innerHTML = segments
+    .map((seg) => {
+      if (seg.current) {
+        const busy = seg.loading ? ' aria-busy="true"' : "";
+        const cls = seg.loading ? "breadcrumb-current breadcrumb-loading" : "breadcrumb-current";
+        return `<li class="breadcrumb-item"><span class="${cls}" aria-current="page"${busy}>${escapeHtml(seg.label)}</span></li>`;
+      }
+      return `<li class="breadcrumb-item"><a href="${escapeHtml(seg.href)}">${escapeHtml(seg.label)}</a></li>`;
+    })
+    .join("");
+
+  updateNavActive(r === "invoice" ? "invoice" : r);
+}
+
+/** Move focus to the visible view heading for screen readers (skip modals / form fields). */
+function focusVisiblePageHeading() {
+  if (shouldForceLoginView(currentUser)) return;
+  const active = document.activeElement;
+  if (
+    active &&
+    (active.tagName === "INPUT" ||
+      active.tagName === "TEXTAREA" ||
+      active.tagName === "SELECT" ||
+      active.getAttribute("contenteditable") === "true")
+  ) {
+    return;
+  }
+  if (
+    active &&
+    active.closest?.(
+      "[role='dialog'], .invoice-preview-modal, .customer-edit-modal, .customer-invoices-modal, .dashboard-detail-modal"
+    )
+  ) {
+    return;
+  }
+
+  const view = document.querySelector("#app-main .view:not([hidden])");
+  const h1 = view?.querySelector("h1");
+  if (!h1) return;
+  if (!h1.hasAttribute("tabindex")) h1.setAttribute("tabindex", "-1");
+  try {
+    h1.focus({ preventScroll: true });
+  } catch (_) {
+    h1.focus();
+  }
 }
 
 /** Max invoices per bulk ZIP (browser / time limits). */
@@ -1737,16 +1939,32 @@ function setupHistoryBulkDownload() {
 
 async function renderInvoicePage(id) {
   const root = document.getElementById("invoice-print-root");
+  if (!root) {
+    invoiceBreadcrumbState = "error";
+    return;
+  }
   root.innerHTML = "";
-  if (!currentUser) return;
+  if (!currentUser) {
+    invoiceBreadcrumbState = "error";
+    return;
+  }
 
   const btnEdit = document.getElementById("btn-invoice-edit");
   const btnDel = document.getElementById("btn-invoice-delete");
   if (btnEdit) btnEdit.hidden = true;
   if (btnDel) btnDel.hidden = true;
 
-  const inv = await getInvoiceById(db, id);
+  let inv;
+  try {
+    inv = await getInvoiceById(db, id);
+  } catch (ex) {
+    invoiceBreadcrumbState = "error";
+    root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not load invoice."))}</p>`;
+    showToast(formatAppError(ex, "Could not load invoice."), { type: "error" });
+    return;
+  }
   if (!inv || !canAccessInvoice(currentUser, inv.userId)) {
+    invoiceBreadcrumbState = "error";
     root.innerHTML = `<p class="muted">Invoice not found.</p>`;
     if (btnEdit) btnEdit.hidden = true;
     if (btnDel) btnDel.hidden = true;
@@ -1797,11 +2015,22 @@ async function renderInvoicePage(id) {
     };
   }
 
-  const node = renderInvoiceDocument(inv);
+  let node;
+  try {
+    node = renderInvoiceDocument(inv);
+  } catch (ex) {
+    invoiceBreadcrumbState = "error";
+    root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not render invoice."))}</p>`;
+    showToast(formatAppError(ex, "Could not render invoice."), { type: "error" });
+    return;
+  }
   root.appendChild(node);
+  invoiceBreadcrumbLabel = inv.invoiceNumber || id;
+  invoiceBreadcrumbState = "ready";
 
   const dl = document.getElementById("btn-download-pdf");
   const pr = document.getElementById("btn-print");
+  if (!dl || !pr) return;
 
   dl.onclick = async () => {
     try {
@@ -1845,10 +2074,14 @@ async function renderInvoicePage(id) {
 }
 
 function setupLogout() {
-  document.getElementById("btn-logout").addEventListener("click", async () => {
-    await withLoading(() => signOutUser(), "Signing out…");
-    showToast("Signed out successfully.");
-    window.location.hash = "#/login";
+  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+    try {
+      await withLoading(() => signOutUser(), "Signing out…");
+      showToast("Signed out successfully.");
+      window.location.hash = "#/login";
+    } catch (ex) {
+      showToast(formatAppError(ex, "Could not sign out."), { type: "error" });
+    }
   });
 }
 

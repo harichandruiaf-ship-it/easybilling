@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Logs & env
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local Firebase / admin keys (if ever placed at repo root)
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+firebase-adminsdk.json

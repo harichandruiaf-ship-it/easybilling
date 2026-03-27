@@ -25,14 +25,20 @@
   <header class="app-header">
     <a href="#/dashboard" class="logo">Easy Billing</a>
     <nav class="nav-auth hidden" id="nav-main" aria-label="Main">
-      <a href="#/dashboard">Home</a>
-      <a href="#/create">New invoice</a>
-      <a href="#/customers">Customers</a>
-      <a href="#/history">History</a>
-      <a href="#/settings">Settings</a>
+      <a href="#/dashboard" data-nav-route="dashboard">Home</a>
+      <a href="#/create" data-nav-route="create">New invoice</a>
+      <a href="#/customers" data-nav-route="customers">Customers</a>
+      <a href="#/history" data-nav-route="history">History</a>
+      <a href="#/settings" data-nav-route="settings">Settings</a>
       <button type="button" class="btn btn-ghost" id="btn-logout">Sign out</button>
     </nav>
   </header>
+
+  <nav class="app-breadcrumbs hidden" id="app-breadcrumbs" aria-label="Breadcrumb">
+    <div class="container container-wide app-breadcrumbs-inner">
+      <ol class="breadcrumb-list" id="breadcrumb-list"></ol>
+    </div>
+  </nav>
 
   <main id="app-main">
     <p class="loading-msg" id="boot-loading">Loading…</p>
@@ -60,6 +66,15 @@
     <!-- Dashboard -->
     <section id="view-dashboard" class="view container container-wide" hidden>
       <h1 class="dashboard-page-title">Business dashboard</h1>
+      <p class="page-quick-links muted small">
+        <a href="#/create" class="text-link">New invoice</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">Invoice history</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/customers" class="text-link">Customers</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/settings" class="text-link">Seller settings</a>
+      </p>
       <div id="dashboard-root" class="dashboard-root"></div>
     </section>
 
@@ -78,6 +93,15 @@
     <section id="view-settings" class="view container" hidden>
       <h1>Seller settings</h1>
       <p class="muted">These appear on every invoice.</p>
+      <p class="page-quick-links muted small">
+        <a href="#/create" class="text-link">New invoice</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">History</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/customers" class="text-link">Customers</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+      </p>
       <form id="form-settings" class="card form-block" novalidate>
         <label>
           Business / seller name
@@ -175,6 +199,13 @@
     <!-- Create invoice -->
     <section id="view-create" class="view container container-wide" hidden>
       <h1 id="create-page-title">Create invoice</h1>
+      <p class="page-quick-links muted small">
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">History</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/customers" class="text-link">Customers</a>
+      </p>
       <p id="create-page-hint" class="muted small" hidden></p>
       <form id="form-invoice" class="card form-block" novalidate>
         <h2 class="h2-small">Customer</h2>
@@ -451,6 +482,13 @@
     <section id="view-customers" class="view container" hidden>
       <h1>Customers</h1>
       <p class="muted">Saved buyers — select them when creating an invoice.</p>
+      <p class="page-quick-links muted small">
+        <a href="#/create" class="text-link">New invoice</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">History</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+      </p>
       <div class="page-toolbar">
         <label class="page-search-label">
           Search customers
@@ -465,7 +503,7 @@
           />
         </label>
       </div>
-      <p class="muted" id="customers-empty">No customers yet. Create an invoice and save a new buyer.</p>
+      <p class="muted" id="customers-empty">No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.</p>
       <ul class="invoice-list" id="customers-list"></ul>
     </section>
 
@@ -635,6 +673,13 @@
     <section id="view-history" class="view container container-wide" hidden>
       <h1>Invoice history</h1>
       <p class="muted">Search and filter invoices saved to your account.</p>
+      <p class="page-quick-links muted small">
+        <a href="#/create" class="text-link">New invoice</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/customers" class="text-link">Customers</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+      </p>
 
       <form id="form-history-filters" class="card history-filters" novalidate>
         <div class="history-quick-search">
@@ -777,14 +822,21 @@
 
       <p class="muted small history-bulk-hint">Bulk download uses the same filters as the list below (max 100 invoices per ZIP).</p>
       <p class="muted small" id="history-count" hidden></p>
-      <p class="muted" id="history-empty">No invoices yet.</p>
+      <p class="muted" id="history-empty">No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.</p>
       <ul class="invoice-list" id="history-list"></ul>
     </section>
 
     <!-- Invoice view / print -->
     <section id="view-invoice" class="view container" hidden>
+      <p class="page-quick-links muted small no-print">
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">Invoice history</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/create" class="text-link">New invoice</a>
+      </p>
       <div class="invoice-actions btn-row wrap no-print">
-        <a href="#/history" class="btn btn-secondary">Back</a>
+        <a href="#/history" class="btn btn-secondary">Back to history</a>
         <a class="btn btn-secondary" id="btn-invoice-edit" href="#/create" hidden>Edit invoice</a>
         <button type="button" class="btn btn-danger" id="btn-invoice-delete" hidden>Delete invoice</button>
         <button type="button" class="btn btn-primary" id="btn-download-pdf">Download PDF</button>
@@ -795,7 +847,14 @@
   </main>
 
   <footer class="app-footer muted small">
-    Easy Billing — GST invoice helper
+    <span class="app-footer-brand">Easy Billing — GST invoice helper</span>
+    <span class="app-footer-nav hidden" id="footer-quick-nav" aria-label="Quick links">
+      <a href="#/dashboard">Home</a>
+      <a href="#/create">New invoice</a>
+      <a href="#/history">History</a>
+      <a href="#/customers">Customers</a>
+      <a href="#/settings">Settings</a>
+    </span>
   </footer>
 
   <div id="app-loading-overlay" class="app-loading-overlay hidden" aria-hidden="true" role="status">

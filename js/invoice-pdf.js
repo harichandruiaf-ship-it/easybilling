@@ -15,6 +15,16 @@ function formatMoney(n) {
   return x.toFixed(2);
 }
 
+function safeAmountToWords(n) {
+  try {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return "—";
+    return amountToWordsIn(x);
+  } catch (_) {
+    return "—";
+  }
+}
+
 function paymentMethodDisplay(code) {
   const m = {
     credit_sale: "Credit sale",
@@ -294,9 +304,10 @@ function buildHeaderAndBuyer(inv) {
 
   const subLine = inv.sellerSubtitle ? `<p class="inv-subtitle">${escapeHtml(inv.sellerSubtitle)}</p>` : "";
 
+  /* Tally-style header: left column = seller + consignee + buyer; right column = meta grid + terms of delivery */
   return `${buildTopTitle()}${buildEInvoiceStrip(inv)}
-    <div class="inv-bill-header-grid">
-      <div class="inv-bill-top-left">
+    <div class="inv-bill-header-grid inv-tally-header">
+      <div class="inv-tally-left-col">
         <div class="inv-seller">
           <p class="inv-co-name"><strong>${escapeHtml(inv.sellerName)}</strong></p>
           ${subLine}
@@ -311,32 +322,26 @@ function buildHeaderAndBuyer(inv) {
             ${sellerUdyam}
           </div>
         </div>
-      </div>
-      <div class="inv-bill-top-right">
-        ${buildMetaGridOnlyHtml(inv, dateStr)}
-      </div>
-      <div class="inv-bill-bottom-left">
-        <div class="inv-mid-left">
-          <div class="inv-block">
-            <div class="block-label">Consignee (Ship to)</div>
-            ${partyShipTo(inv)}
-          </div>
-          <div class="inv-block">
-            <div class="block-label">Buyer (Bill to)</div>
-            ${partyBillTo(inv)}
-          </div>
+        <div class="inv-block">
+          <div class="block-label">Consignee (Ship to)</div>
+          ${partyShipTo(inv)}
+        </div>
+        <div class="inv-block">
+          <div class="block-label">Buyer (Bill to)</div>
+          ${partyBillTo(inv)}
         </div>
       </div>
-      <div class="inv-bill-bottom-right">
+      <div class="inv-tally-right-col">
+        ${buildMetaGridOnlyHtml(inv, dateStr)}
         ${buildTermsOfDeliveryAside(inv)}
       </div>
     </div>`;
 }
 
 function buildFooterBlock(inv) {
-  const words = amountToWordsIn(inv.total);
+  const words = safeAmountToWords(inv.total);
   const taxTotal = (Number(inv.cgst) || 0) + (Number(inv.sgst) || 0);
-  const taxWords = amountToWordsIn(taxTotal);
+  const taxWords = safeAmountToWords(taxTotal);
 
   const prev = inv.previousBalanceSnapshot ?? inv.previousBalance;
   const curr = inv.currentBalanceSnapshot ?? inv.currentBalance;
@@ -421,7 +426,7 @@ function buildFooterBlock(inv) {
     </div>
 
     <table class="inv-print-table inv-hsn-sum">
-      <caption class="block-label">GST tax analysis</caption>
+      <caption class="block-label inv-hsn-caption">GST TAX ANALYSIS</caption>
       <thead>
         <tr>
           <th>HSN/SAC</th>
