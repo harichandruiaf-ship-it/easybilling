@@ -34,11 +34,22 @@ import {
   getCustomerById,
 } from "./customers.js";
 import { withLoading, showLoading, hideLoading } from "./loading.js";
-import { showToast } from "./toast.js";
-import { mountDashboard, closeDashboardDetail } from "./dashboard.js";
+import { showToast, showValidationToast } from "./toast.js";
+import { mountDashboard, closeDashboardDetail, closeDashboardQuickOrderModal } from "./dashboard.js";
+import {
+  getQuickOrderById,
+  listOpenQuickOrders,
+  addQuickOrder,
+  updateQuickOrder,
+  deleteQuickOrder,
+  markQuickOrderDone,
+} from "./quick-orders.js";
 
 const app = initializeApp(firebaseConfig);
 const { auth, db } = initAuthServices(app);
+
+/** Shown in the browser tab; keep in sync with visible screen names. */
+const APP_NAME = "Easy Billing";
 
 const bootEl = document.getElementById("boot-loading");
 const navMain = document.getElementById("nav-main");
@@ -46,6 +57,7 @@ const navMain = document.getElementById("nav-main");
 const views = {
   login: document.getElementById("view-login"),
   dashboard: document.getElementById("view-dashboard"),
+  quickOrders: document.getElementById("view-quick-orders"),
   settings: document.getElementById("view-settings"),
   create: document.getElementById("view-create"),
   customers: document.getElementById("view-customers"),
@@ -489,12 +501,16 @@ function parseHash() {
   const params = new URLSearchParams(queryPart || "");
   const customerId = params.get("customer") || null;
   const editId = (params.get("edit") || "").trim() || null;
-  return { route, id, customerId, editId };
+  const quickOrderId = (params.get("quickOrder") || "").trim() || null;
+  return { route, id, customerId, editId, quickOrderId };
 }
 
 function setCreatePageEditMode(isEdit, invoiceNumberHint) {
+  const h1Text = document.getElementById("create-page-title-text");
   const h1 = document.getElementById("create-page-title");
-  if (h1) h1.textContent = isEdit ? "Edit invoice" : "Create invoice";
+  const title = isEdit ? "Edit GST invoice" : "New GST invoice";
+  if (h1Text) h1Text.textContent = title;
+  else if (h1) h1.textContent = title;
   const hint = document.getElementById("create-page-hint");
   if (hint) {
     hint.hidden = !isEdit;
@@ -515,13 +531,14 @@ function setCreatePageEditMode(isEdit, invoiceNumberHint) {
 }
 
 async function route() {
-  const { route: r, id, customerId, editId } = parseHash();
+  const { route: r, id, customerId, editId, quickOrderId } = parseHash();
   if (r !== "invoice") {
     invoiceBreadcrumbLabel = null;
     invoiceBreadcrumbState = null;
   }
 
   try {
+    closeDashboardQuickOrderModal();
     if (r !== "dashboard") {
       closeDashboardDetail();
     }
@@ -564,11 +581,18 @@ async function route() {
       return;
     }
 
+    if (r === "quick-orders") {
+      showView("quickOrders");
+      await runRouteStep("quick-orders", () => withLoading(() => renderQuickOrdersPage(), "Loading…"));
+      return;
+    }
+
     if (r === "create") {
       showView("create");
       if (invoiceFormApi && currentUser) {
         await runRouteStep("create", () =>
           withLoading(async () => {
+            hideCreateQuickOrderBanner();
             const s = await loadUserSettings(currentUser.uid);
             invoiceFormApi.setTaxRates(s.cgstPercent, s.sgstPercent);
             const list = await listCustomers(db, currentUser.uid);
@@ -598,20 +622,64 @@ async function route() {
               }
               invoiceFormApi.populateFromInvoice(inv, { openingBeforeInvoice: openingBefore });
               setCreatePageEditMode(true, inv.invoiceNumber);
+              hideCreateQuickOrderBanner();
             } else {
               editingInvoiceId = null;
               editingInvoiceSnapshot = null;
-              invoiceFormApi.resetForm();
               setCreatePageEditMode(false);
-              try {
-                if (customerId && list.some((c) => c.id === customerId)) {
-                  await invoiceFormApi.selectCustomerById(customerId);
+              let loadedFromQuickOrder = false;
+              let quickOrderDoc = null;
+              if (quickOrderId) {
+                try {
+                  const qo = await getQuickOrderById(db, quickOrderId);
+                  if (
+                    qo &&
+                    qo.userId === currentUser.uid &&
+                    (qo.status || "open") === "open" &&
+                    typeof invoiceFormApi.applyQuickOrderDraft === "function"
+                  ) {
+                    invoiceFormApi.applyQuickOrderDraft(qo);
+                    loadedFromQuickOrder = true;
+                    quickOrderDoc = qo;
+                    const matched = findCustomerMatchingQuickOrder(list, qo);
+                    if (matched?.id) {
+                      try {
+                        await invoiceFormApi.selectCustomerById(matched.id);
+                      } catch (_) {
+                        /* keep draft buyer fields */
+                      }
+                      showToast(
+                        `Linked to saved customer "${matched.name || "customer"}". Review lines and rates, then preview.`
+                      );
+                    } else {
+                      showToast(
+                        "New customer — add address in the popup and save to register them; then preview the invoice."
+                      );
+                      requestAnimationFrame(() => openCustomerAddModalFromQuickOrder(qo));
+                    }
+                  }
+                } catch (_) {
+                  /* fall through to blank form */
                 }
-              } catch (_) {
-                /* ignore customer load failure */
+                if (quickOrderId && !loadedFromQuickOrder) {
+                  showToast("Quick order not found or already completed.", { type: "error" });
+                }
               }
-              invoiceFormApi.ensureOneRow();
-              invoiceFormApi.recalcTotals();
+              if (!loadedFromQuickOrder) {
+                invoiceFormApi.resetForm();
+                try {
+                  if (customerId && list.some((c) => c.id === customerId)) {
+                    await invoiceFormApi.selectCustomerById(customerId);
+                  }
+                } catch (_) {
+                  /* ignore customer load failure */
+                }
+                invoiceFormApi.ensureOneRow();
+                invoiceFormApi.recalcTotals();
+              }
+              if (loadedFromQuickOrder && quickOrderDoc) {
+                showCreateQuickOrderBanner(quickOrderDoc);
+              }
             }
           }, "Loading…")
         );
@@ -708,7 +776,7 @@ function setupAuthForm() {
   const passwordInput = document.getElementById("auth-password");
   const btnPasswordToggle = document.getElementById("btn-auth-password-toggle");
   const authModeLead = document.getElementById("auth-mode-lead");
-  const loginTitle = document.getElementById("login-page-title");
+  const loginTitleText = document.getElementById("login-page-title-text");
   const emailInput = document.getElementById("auth-email");
   const rememberCb = document.getElementById("auth-remember");
   const forgotBtn = document.getElementById("auth-forgot-password");
@@ -735,7 +803,7 @@ function setupAuthForm() {
         : "Already have an account?";
     }
     btnToggle.textContent = authModeSignIn ? "Create an account" : "Sign in";
-    if (loginTitle) loginTitle.textContent = authModeSignIn ? "Log in" : "Create account";
+    if (loginTitleText) loginTitleText.textContent = authModeSignIn ? "Sign in" : "Create account";
     signupNameWrap?.classList.toggle("hidden", authModeSignIn);
     signupNameWrap?.setAttribute("aria-hidden", authModeSignIn ? "true" : "false");
     signupTailWrap?.classList.toggle("hidden", authModeSignIn);
@@ -751,6 +819,7 @@ function setupAuthForm() {
         ? "Then add your business profile in Settings."
         : "It takes less than a minute.";
     }
+    updateDocumentTitle();
   }
 
   syncAuthModeUi();
@@ -814,18 +883,18 @@ function setupAuthForm() {
     const email = emailInput?.value.trim() ?? "";
     err.textContent = "";
     if (!email) {
-      err.textContent = "Enter your email address first.";
+      showValidationToast("Enter your email address first.", { errEl: err });
       return;
     }
     if (isConfigPlaceholder()) {
-      err.textContent = "Configure firebase-config.js with your Firebase keys first.";
+      showValidationToast("Configure firebase-config.js with your Firebase keys first.", { errEl: err });
       return;
     }
     try {
       await sendPasswordResetToEmail(email);
       showToast("Check your inbox for a password reset link.");
     } catch (ex) {
-      err.textContent = ex.message || "Could not send reset email.";
+      showValidationToast(ex.message || "Could not send reset email.", { errEl: err });
     }
   });
 
@@ -833,7 +902,7 @@ function setupAuthForm() {
     e.preventDefault();
     err.textContent = "";
     if (isConfigPlaceholder()) {
-      err.textContent = "Configure firebase-config.js with your Firebase keys first.";
+      showValidationToast("Configure firebase-config.js with your Firebase keys first.", { errEl: err });
       return;
     }
     const email = document.getElementById("auth-email").value.trim();
@@ -843,50 +912,50 @@ function setupAuthForm() {
 
     if (authModeSignIn) {
       if (!email) {
-        err.textContent = "Enter your email address.";
+        showValidationToast("Enter your email address.", { errEl: err });
         return;
       }
       if (!emailOk) {
-        err.textContent = "Enter a valid email address.";
+        showValidationToast("Enter a valid email address.", { errEl: err });
         return;
       }
       if (!password) {
-        err.textContent = "Enter your password.";
+        showValidationToast("Enter your password.", { errEl: err });
         return;
       }
     } else {
       const fullName = signupFullname?.value.trim() ?? "";
       if (!fullName) {
-        err.textContent = "Enter your full name.";
+        showValidationToast("Enter your full name.", { errEl: err });
         return;
       }
       if (!email) {
-        err.textContent = "Enter your email address.";
+        showValidationToast("Enter your email address.", { errEl: err });
         return;
       }
       if (!emailOk) {
-        err.textContent = "Enter a valid email address.";
+        showValidationToast("Enter a valid email address.", { errEl: err });
         return;
       }
       if (!password) {
-        err.textContent = "Enter a password.";
+        showValidationToast("Enter a password.", { errEl: err });
         return;
       }
       if (password.length < 6) {
-        err.textContent = "Password must be at least 6 characters.";
+        showValidationToast("Password must be at least 6 characters.", { errEl: err });
         return;
       }
       const confirm = passwordConfirmInput?.value ?? "";
       if (!confirm) {
-        err.textContent = "Re-enter your password to confirm.";
+        showValidationToast("Re-enter your password to confirm.", { errEl: err });
         return;
       }
       if (confirm.length < 6) {
-        err.textContent = "Confirm password must be at least 6 characters.";
+        showValidationToast("Confirm password must be at least 6 characters.", { errEl: err });
         return;
       }
       if (password !== confirm) {
-        err.textContent = "Password and confirm password must match.";
+        showValidationToast("Password and confirm password must match.", { errEl: err });
         return;
       }
     }
@@ -913,7 +982,7 @@ function setupAuthForm() {
       }
       window.location.hash = "#/dashboard";
     } catch (ex) {
-      err.textContent = ex.message || "Authentication failed.";
+      showValidationToast(ex.message || "Authentication failed.", { errEl: err });
     }
   });
 }
@@ -925,7 +994,8 @@ async function fillSettingsForm() {
     s = await loadUserSettings(currentUser.uid);
   } catch (ex) {
     const errEl = document.getElementById("settings-error");
-    if (errEl) errEl.textContent = formatAppError(ex, "Could not load settings.");
+    const msg = formatAppError(ex, "Could not load settings.");
+    showValidationToast(msg, { errEl });
     return;
   }
   const setVal = (id, v) => {
@@ -977,11 +1047,11 @@ function setupSettingsForm() {
     const sgst = parseFloat(document.getElementById("set-sgst-pct").value);
 
     if (!sellerName || !sellerAddress || !sellerPhone) {
-      errEl.textContent = "Fill business name, address, and phone.";
+      showValidationToast("Fill business name, address, and phone.", { errEl });
       return;
     }
     if (Number.isNaN(cgst) || cgst < 0 || cgst > 100 || Number.isNaN(sgst) || sgst < 0 || sgst > 100) {
-      errEl.textContent = "CGST and SGST must be between 0 and 100.";
+      showValidationToast("CGST and SGST must be between 0 and 100.", { errEl });
       return;
     }
 
@@ -1015,7 +1085,7 @@ function setupSettingsForm() {
       okEl.textContent = "";
       showToast("Settings saved successfully.");
     } catch (ex) {
-      errEl.textContent = firestorePermissionHint(ex) || ex.message || "Could not save.";
+      showValidationToast(firestorePermissionHint(ex) || ex.message || "Could not save.", { errEl });
     }
   });
 }
@@ -1200,7 +1270,7 @@ function setupInvoicePreviewModal() {
     } catch (ex) {
       const msg =
         ex.message === "SELLER_INCOMPLETE"
-          ? "Complete Seller settings before creating an invoice."
+          ? "Complete Business settings before creating an invoice."
           : firestorePermissionHint(ex) || ex.message || "Could not save invoice.";
       const detail =
         ex.code === "failed-precondition"
@@ -1209,9 +1279,7 @@ function setupInvoicePreviewModal() {
       if (ex.message === "SELLER_INCOMPLETE") {
         window.location.hash = "#/settings";
       }
-      if (previewErr) previewErr.textContent = detail;
-      if (errEl) errEl.textContent = detail;
-      showToast(detail, { type: "error" });
+      showValidationToast(detail, { errEl: previewErr, errEl2: errEl });
     } finally {
       btnGen.disabled = false;
     }
@@ -1225,6 +1293,8 @@ function setupInvoicePreviewModal() {
 }
 
 function setupInvoiceForm() {
+  document.getElementById("btn-create-qo-hide-banner")?.addEventListener("click", hideCreateQuickOrderBanner);
+
   invoiceFormApi = initInvoiceForm({
     loadCustomer: (id) => getCustomerById(db, id),
     onPreview: async (payload) => {
@@ -1239,21 +1309,14 @@ function setupInvoiceForm() {
           "Loading…"
         );
         if (!seller.sellerName || !seller.sellerAddress || !seller.sellerPhone) {
-          if (errEl) errEl.textContent = "Complete Seller settings before creating an invoice.";
+          showValidationToast("Complete Business settings before creating a GST invoice.", { errEl });
           window.location.hash = "#/settings";
           return;
         }
 
         const merged = mergeSellerIntoInvoicePayload(payload, seller);
-        const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
-          payload.total,
-          payload.paymentStatus,
-          payload.amountPaidOnInvoice
-        );
 
         let prevSnap = 0;
-        let currSnap = 0;
-
         if (editingInvoiceId && editingInvoiceSnapshot) {
           const oldInv = editingInvoiceSnapshot;
           const oldCustId = (oldInv.customerId || "").trim();
@@ -1270,14 +1333,18 @@ function setupInvoiceForm() {
               prevSnap = b;
             }
           }
-          currSnap = round2(prevSnap + Number(payload.total) - amountPaidOnInvoice);
-        } else {
-          if (payload.selectedCustomerId) {
-            const c = await getCustomerById(db, payload.selectedCustomerId);
-            prevSnap = round2(Number(c?.outstandingBalance) || 0);
-          }
-          currSnap = round2(prevSnap + Number(payload.total) - amountPaidOnInvoice);
+        } else if (payload.selectedCustomerId) {
+          const c = await getCustomerById(db, payload.selectedCustomerId);
+          prevSnap = round2(Number(c?.outstandingBalance) || 0);
         }
+
+        const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+          payload.total,
+          payload.paymentStatus,
+          payload.amountPaidOnInvoice,
+          prevSnap
+        );
+        const currSnap = round2(prevSnap + Number(payload.total) - amountPaidOnInvoice);
 
         const inv = {
           ...merged,
@@ -1311,8 +1378,7 @@ function setupInvoiceForm() {
       } catch (ex) {
         pendingInvoicePayload = null;
         const msg = firestorePermissionHint(ex) || ex.message || "Could not build preview.";
-        if (errEl) errEl.textContent = msg;
-        showToast(msg, { type: "error" });
+        showValidationToast(msg, { errEl });
       }
     },
   });
@@ -1348,7 +1414,89 @@ function closeCustomerEditModal() {
   if (form) form.reset();
   const errEl = document.getElementById("edit-customer-error");
   if (errEl) errEl.textContent = "";
+  const titleText = document.getElementById("customer-edit-title-text");
+  if (titleText) titleText.textContent = "Edit customer";
+  const saveBtn = document.getElementById("btn-edit-customer-save");
+  if (saveBtn) saveBtn.textContent = "Save changes";
+  document.getElementById("edit-cust-opening-wrap")?.classList.add("hidden");
+  const op = document.getElementById("edit-cust-opening");
+  if (op) op.value = "";
   toggleEditConsigneeFields();
+}
+
+function normCustomerNameKey(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normPhoneDigits(s) {
+  return String(s || "").replace(/\D/g, "");
+}
+
+/**
+ * Match quick order to an existing saved customer (name first, then phone).
+ * @param {Array<{ id: string, name?: string, phone?: string }>} list
+ * @param {{ customerName?: string, customerPhone?: string }} qo
+ */
+function findCustomerMatchingQuickOrder(list, qo) {
+  if (!list?.length || !qo) return null;
+  const qName = normCustomerNameKey(qo.customerName);
+  const qPhone = normPhoneDigits(qo.customerPhone);
+  if (!qName && qPhone.length < 8) return null;
+  if (qName) {
+    for (const c of list) {
+      if (normCustomerNameKey(c.name) === qName) return c;
+    }
+  }
+  if (qPhone.length >= 8) {
+    for (const c of list) {
+      if (normPhoneDigits(c.phone) === qPhone) return c;
+    }
+  }
+  return null;
+}
+
+/**
+ * Open Add customer with fields prefilled from a quick order (new / unknown buyer).
+ * @param {{ customerName?: string, customerPhone?: string, memo?: string }} qo
+ */
+function openCustomerAddModalFromQuickOrder(qo) {
+  if (!currentUser || !qo) return;
+  openCustomerAddModal();
+  const name = (qo.customerName || "").trim();
+  const phone = (qo.customerPhone || "").trim();
+  const memo = (qo.memo || "").trim();
+  if (name) document.getElementById("edit-cust-name").value = name;
+  if (phone) document.getElementById("edit-cust-phone").value = phone;
+  if (memo) {
+    const contact = document.getElementById("edit-cust-contact");
+    if (contact && !contact.value.trim()) contact.value = memo.slice(0, 200);
+  }
+}
+
+function openCustomerAddModal() {
+  if (!currentUser) return;
+  const errEl = document.getElementById("edit-customer-error");
+  if (errEl) errEl.textContent = "";
+  editingCustomerId = null;
+  const form = document.getElementById("form-edit-customer");
+  if (form) form.reset();
+  document.getElementById("edit-cust-consignee-same").checked = true;
+  toggleEditConsigneeFields();
+  const op = document.getElementById("edit-cust-opening");
+  if (op) op.value = "";
+  document.getElementById("edit-cust-opening-wrap")?.classList.remove("hidden");
+  const titleText = document.getElementById("customer-edit-title-text");
+  if (titleText) titleText.textContent = "Add customer";
+  const saveBtn = document.getElementById("btn-edit-customer-save");
+  if (saveBtn) saveBtn.textContent = "Add customer";
+  const modal = document.getElementById("customer-edit-modal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  document.getElementById("edit-cust-name")?.focus();
 }
 
 async function openCustomerEditModal(customerId) {
@@ -1396,6 +1544,12 @@ async function openCustomerEditModal(customerId) {
     document.getElementById("edit-cust-consignee-phone").value = c.consigneePhone || "";
     document.getElementById("edit-cust-consignee-email").value = c.consigneeEmail || "";
   }
+
+  document.getElementById("edit-cust-opening-wrap")?.classList.add("hidden");
+  const titleText = document.getElementById("customer-edit-title-text");
+  if (titleText) titleText.textContent = "Edit customer";
+  const saveBtn = document.getElementById("btn-edit-customer-save");
+  if (saveBtn) saveBtn.textContent = "Save changes";
 
   const modal = document.getElementById("customer-edit-modal");
   if (!modal) return;
@@ -1511,7 +1665,7 @@ function setupCustomerPaymentModal() {
 
     const raw = parseFloat(document.getElementById("pay-amount")?.value);
     if (!Number.isFinite(raw) || raw <= 0) {
-      if (errEl) errEl.textContent = "Enter a valid amount.";
+      showValidationToast("Enter a valid amount.", { errEl });
       return;
     }
     const method = document.getElementById("pay-method")?.value || "other";
@@ -1532,7 +1686,7 @@ function setupCustomerPaymentModal() {
       closeCustomerPaymentModal();
       await renderCustomersPage();
     } catch (ex) {
-      if (errEl) errEl.textContent = firestorePermissionHint(ex) || ex.message || "Could not save payment.";
+      showValidationToast(firestorePermissionHint(ex) || ex.message || "Could not save payment.", { errEl });
     }
   });
 
@@ -1563,8 +1717,8 @@ function setupCustomerEditModal() {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = document.getElementById("edit-customer-error");
-    errEl.textContent = "";
-    if (!editingCustomerId || !currentUser) return;
+    if (errEl) errEl.textContent = "";
+    if (!currentUser) return;
 
     const name = document.getElementById("edit-cust-name").value.trim();
     const address = document.getElementById("edit-cust-address").value.trim();
@@ -1575,36 +1729,36 @@ function setupCustomerEditModal() {
     const consigneeSame = document.getElementById("edit-cust-consignee-same").checked;
 
     if (!name) {
-      errEl.textContent = "Enter buyer name.";
+      showValidationToast("Enter buyer name.", { errEl });
       return;
     }
     if (!address) {
-      errEl.textContent = "Enter address.";
+      showValidationToast("Enter address.", { errEl });
       return;
     }
     if (!phone) {
-      errEl.textContent = "Enter phone number.";
+      showValidationToast("Enter phone number.", { errEl });
       return;
     }
     if (!isValidGstinOptional(gstin)) {
-      errEl.textContent = "Invalid GSTIN format (optional field).";
+      showValidationToast("Invalid GSTIN format (optional field).", { errEl });
       return;
     }
     if (!isValidPanOptional(buyerPan)) {
-      errEl.textContent = "Invalid PAN format (optional field).";
+      showValidationToast("Invalid PAN format (optional field).", { errEl });
       return;
     }
     if (!consigneeSame) {
       if (!document.getElementById("edit-cust-consignee-name").value.trim()) {
-        errEl.textContent = "Enter consignee name or mark same as buyer.";
+        showValidationToast("Enter consignee name or mark same as buyer.", { errEl });
         return;
       }
       if (!document.getElementById("edit-cust-consignee-address").value.trim()) {
-        errEl.textContent = "Enter consignee address.";
+        showValidationToast("Enter consignee address.", { errEl });
         return;
       }
       if (!isValidGstinOptional(consigneeGstin)) {
-        errEl.textContent = "Invalid consignee GSTIN format (optional field).";
+        showValidationToast("Invalid consignee GSTIN format (optional field).", { errEl });
         return;
       }
     }
@@ -1630,6 +1784,43 @@ function setupCustomerEditModal() {
       consigneeEmail: consigneeSame ? "" : document.getElementById("edit-cust-consignee-email").value.trim(),
     };
 
+    if (!editingCustomerId) {
+      const rawOp = document.getElementById("edit-cust-opening")?.value?.trim() ?? "";
+      let opening = 0;
+      if (rawOp !== "") {
+        const p = parseFloat(rawOp);
+        if (!Number.isFinite(p) || p < 0) {
+          showValidationToast("Opening outstanding must be zero or a positive amount.", { errEl });
+          return;
+        }
+        opening = round2(p);
+      }
+      try {
+        const newId = await withLoading(
+          () => addCustomer(db, currentUser.uid, { ...payload, outstandingBalance: opening }),
+          "Saving…"
+        );
+        closeCustomerEditModal();
+        const { route: routeName } = parseHash();
+        if (routeName === "create" && invoiceFormApi && currentUser) {
+          try {
+            const list = await listCustomers(db, currentUser.uid);
+            invoiceFormApi.setCustomerOptions(list);
+            await invoiceFormApi.selectCustomerById(newId);
+            showToast("Customer saved and linked to this invoice.");
+          } catch (_) {
+            showToast("Customer added.");
+          }
+        } else {
+          showToast("Customer added.");
+        }
+        await renderCustomersPage();
+      } catch (ex) {
+        showValidationToast(firestorePermissionHint(ex) || ex.message || "Could not save customer.", { errEl });
+      }
+      return;
+    }
+
     try {
       await withLoading(
         () => updateCustomer(db, editingCustomerId, payload),
@@ -1639,9 +1830,11 @@ function setupCustomerEditModal() {
       closeCustomerEditModal();
       await renderCustomersPage();
     } catch (ex) {
-      errEl.textContent = firestorePermissionHint(ex) || ex.message || "Could not save customer.";
+      showValidationToast(firestorePermissionHint(ex) || ex.message || "Could not save customer.", { errEl });
     }
   });
+
+  document.getElementById("btn-customers-add")?.addEventListener("click", () => openCustomerAddModal());
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -1747,7 +1940,7 @@ function renderCustomersListFromCache() {
   if (!all || !all.length) {
     emptyEl.hidden = false;
     emptyEl.innerHTML =
-      'No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.';
+      'No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.';
     return;
   }
   const q = document.getElementById("customers-search")?.value ?? "";
@@ -1760,7 +1953,7 @@ function renderCustomersListFromCache() {
   }
   emptyEl.hidden = true;
   emptyEl.innerHTML =
-    'No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.';
+    'No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.';
   for (const row of rows) {
     const li = document.createElement("li");
     li.className = "customer-row";
@@ -1824,6 +2017,234 @@ function renderCustomersListFromCache() {
         showToast("Customer deleted successfully.");
       } catch (ex) {
         showToast(firestorePermissionHint(ex) || ex.message || "Could not delete customer.", { type: "error" });
+      }
+    });
+  });
+}
+
+let quickOrdersPageWired = false;
+
+function qoEscapeAttr(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}
+
+function qoAddLineRow(container, line = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "quick-order-line-row";
+  const prod = qoEscapeAttr(line.productName || "");
+  const qty = Number(line.quantity) > 0 ? line.quantity : 1;
+  const unit = qoEscapeAttr(line.unit || "Pcs");
+  wrap.innerHTML = `
+    <div class="quick-order-line-grid">
+      <label class="qo-line-label">Product <input type="text" class="qo-line-product" maxlength="200" value="${prod}" /></label>
+      <label class="qo-line-label">Qty <input type="number" class="qo-line-qty" min="0.001" step="any" value="${qty}" /></label>
+      <label class="qo-line-label">Unit <input type="text" class="qo-line-unit" maxlength="12" placeholder="Pcs" value="${unit}" /></label>
+    </div>
+    <button type="button" class="btn btn-ghost btn-small qo-line-remove">Remove</button>`;
+  wrap.querySelector(".qo-line-remove")?.addEventListener("click", () => {
+    const rows = container.querySelectorAll(".quick-order-line-row");
+    if (rows.length <= 1) return;
+    wrap.remove();
+  });
+  container.appendChild(wrap);
+}
+
+function qoReadLines(container) {
+  const rows = container.querySelectorAll(".quick-order-line-row");
+  const lines = [];
+  rows.forEach((row) => {
+    const productName = row.querySelector(".qo-line-product")?.value?.trim() || "";
+    const qty = parseFloat(row.querySelector(".qo-line-qty")?.value);
+    const unit = row.querySelector(".qo-line-unit")?.value?.trim() || "Pcs";
+    lines.push({
+      productName,
+      quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
+      unit: unit || "Pcs",
+    });
+  });
+  return lines;
+}
+
+function qoResetForm() {
+  const editId = document.getElementById("quick-order-edit-id");
+  if (editId) editId.value = "";
+  document.getElementById("qo-customer-name").value = "";
+  document.getElementById("qo-customer-phone").value = "";
+  document.getElementById("qo-send-date").value = "";
+  document.getElementById("qo-memo").value = "";
+  const wrap = document.getElementById("qo-lines-wrap");
+  if (wrap) {
+    wrap.innerHTML = "";
+    qoAddLineRow(wrap, {});
+    qoAddLineRow(wrap, {});
+  }
+  const err = document.getElementById("qo-form-error");
+  if (err) err.textContent = "";
+  const btnSave = document.getElementById("btn-qo-save");
+  if (btnSave) btnSave.textContent = "Save quick order";
+  document.getElementById("btn-qo-cancel-edit")?.classList.add("hidden");
+}
+
+function qoFillFormForEdit(row) {
+  const editId = document.getElementById("quick-order-edit-id");
+  if (editId) editId.value = row.id || "";
+  document.getElementById("qo-customer-name").value = row.customerName || "";
+  document.getElementById("qo-customer-phone").value = row.customerPhone || "";
+  document.getElementById("qo-send-date").value = row.sendDate || "";
+  document.getElementById("qo-memo").value = row.memo || "";
+  const wrap = document.getElementById("qo-lines-wrap");
+  if (wrap) {
+    wrap.innerHTML = "";
+    const lines = Array.isArray(row.lines) && row.lines.length ? row.lines : [{}];
+    lines.forEach((ln) => qoAddLineRow(wrap, ln));
+  }
+  const btnSave = document.getElementById("btn-qo-save");
+  if (btnSave) btnSave.textContent = "Update quick order";
+  document.getElementById("btn-qo-cancel-edit")?.classList.remove("hidden");
+  const err = document.getElementById("qo-form-error");
+  if (err) err.textContent = "";
+  document.getElementById("form-quick-order")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setupQuickOrdersPage() {
+  if (quickOrdersPageWired) return;
+  quickOrdersPageWired = true;
+  const form = document.getElementById("form-quick-order");
+  const wrap = document.getElementById("qo-lines-wrap");
+  if (wrap && !wrap.querySelector(".quick-order-line-row")) {
+    qoAddLineRow(wrap, {});
+    qoAddLineRow(wrap, {});
+  }
+  document.getElementById("btn-qo-add-line")?.addEventListener("click", () => {
+    if (wrap) qoAddLineRow(wrap, {});
+  });
+  document.getElementById("btn-qo-cancel-edit")?.addEventListener("click", () => qoResetForm());
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById("qo-form-error");
+    if (errEl) errEl.textContent = "";
+    if (!currentUser) return;
+    const name = document.getElementById("qo-customer-name")?.value?.trim() || "";
+    if (!name) {
+      if (errEl) errEl.textContent = "Enter customer name.";
+      return;
+    }
+    const lines = qoReadLines(wrap);
+    const hasProduct = lines.some((l) => (l.productName || "").trim().length > 0);
+    if (!hasProduct) {
+      if (errEl) errEl.textContent = "Add at least one product line.";
+      return;
+    }
+    const payload = {
+      customerName: name,
+      customerPhone: document.getElementById("qo-customer-phone")?.value?.trim() || "",
+      sendDate: document.getElementById("qo-send-date")?.value?.trim() || "",
+      memo: document.getElementById("qo-memo")?.value?.trim() || "",
+      lines,
+    };
+    const editId = document.getElementById("quick-order-edit-id")?.value?.trim() || "";
+    try {
+      if (editId) {
+        await withLoading(
+          () => updateQuickOrder(db, editId, currentUser.uid, payload),
+          "Saving…"
+        );
+        showToast("Quick order updated.");
+      } else {
+        await withLoading(() => addQuickOrder(db, currentUser.uid, payload), "Saving…");
+        showToast("Quick order saved — it will show on your dashboard until you invoice or mark done.");
+      }
+      qoResetForm();
+      await renderQuickOrdersPage();
+    } catch (ex) {
+      if (errEl) errEl.textContent = firestorePermissionHint(ex) || ex.message || "Could not save.";
+    }
+  });
+}
+
+async function renderQuickOrdersPage() {
+  const listEl = document.getElementById("qo-list");
+  const emptyEl = document.getElementById("qo-empty");
+  if (!listEl || !currentUser) return;
+
+  let rows = [];
+  try {
+    rows = await listOpenQuickOrders(db, currentUser.uid);
+  } catch (ex) {
+    listEl.innerHTML = `<li class="muted">Could not load quick orders.</li>`;
+    if (emptyEl) emptyEl.hidden = true;
+    return;
+  }
+
+  if (!rows.length) {
+    listEl.innerHTML = "";
+    if (emptyEl) emptyEl.hidden = false;
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+  listEl.innerHTML = "";
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = "quick-order-card card";
+    const lines = Array.isArray(row.lines) ? row.lines : [];
+    const lineSummary = lines
+      .filter((l) => (l.productName || "").trim())
+      .map((l) => `${escapeHtml((l.productName || "").trim())} × ${escapeHtml(String(l.quantity ?? ""))}`)
+      .join(" · ");
+    const send = (row.sendDate || "").trim();
+    const sendLabel = send
+      ? send.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$3/$2/$1")
+      : "—";
+    li.innerHTML = `
+      <div class="quick-order-card-head">
+        <strong class="quick-order-customer">${escapeHtml(row.customerName || "Customer")}</strong>
+        <span class="quick-order-date-badge" title="Send / deliver by">Due ${escapeHtml(sendLabel)}</span>
+      </div>
+      <p class="quick-order-lines muted small">${lineSummary || "—"}</p>
+      ${row.memo ? `<p class="quick-order-memo small">${escapeHtml(row.memo)}</p>` : ""}
+      <div class="btn-row wrap quick-order-card-actions">
+        <a class="btn btn-primary btn-small" href="#/create?quickOrder=${encodeURIComponent(row.id)}">Create GST invoice</a>
+        <button type="button" class="btn btn-secondary btn-small btn-qo-edit" data-id="${escapeHtml(row.id)}">Edit</button>
+        <button type="button" class="btn btn-secondary btn-small btn-qo-done" data-id="${escapeHtml(row.id)}">Mark done</button>
+        <button type="button" class="btn btn-ghost btn-small btn-qo-del" data-id="${escapeHtml(row.id)}">Delete</button>
+      </div>`;
+    listEl.appendChild(li);
+  }
+
+  listEl.querySelectorAll(".btn-qo-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-id");
+      if (!id) return;
+      const row = rows.find((r) => r.id === id);
+      if (row) qoFillFormForEdit(row);
+    });
+  });
+  listEl.querySelectorAll(".btn-qo-done").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-id");
+      if (!id) return;
+      try {
+        await withLoading(() => markQuickOrderDone(db, id, currentUser.uid), "Updating…");
+        showToast("Marked done — removed from reminders.");
+        await renderQuickOrdersPage();
+      } catch (ex) {
+        showToast(firestorePermissionHint(ex) || ex.message || "Could not update.", { type: "error" });
+      }
+    });
+  });
+  listEl.querySelectorAll(".btn-qo-del").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-id");
+      if (!id || !confirm("Delete this quick order?")) return;
+      try {
+        await withLoading(() => deleteQuickOrder(db, id, currentUser.uid), "Deleting…");
+        showToast("Deleted.");
+        await renderQuickOrdersPage();
+      } catch (ex) {
+        showToast(firestorePermissionHint(ex) || ex.message || "Could not delete.", { type: "error" });
       }
     });
   });
@@ -1902,6 +2323,30 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function hideCreateQuickOrderBanner() {
+  document.getElementById("create-quick-order-banner")?.classList.add("hidden");
+}
+
+function showCreateQuickOrderBanner(qo) {
+  const el = document.getElementById("create-quick-order-banner");
+  const text = document.getElementById("create-quick-order-banner-text");
+  if (!el || !text || !qo) return;
+  const lines = Array.isArray(qo.lines) ? qo.lines : [];
+  const lineSummary = lines
+    .filter((l) => (l.productName || "").trim())
+    .map((l) => `${String(l.productName || "").trim()} × ${l.quantity ?? ""}`)
+    .slice(0, 8)
+    .join("; ");
+  const due = String(qo.sendDate || "").trim();
+  const dueStr = due ? due.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$3/$2/$1") : "—";
+  const phone = String(qo.customerPhone || "").trim();
+  const memo = String(qo.memo || "").trim();
+  text.textContent = `Due ${dueStr}.${phone ? ` Phone: ${phone}.` : ""} ${lineSummary || "See line items below."}${
+    memo ? ` Notes: ${memo.slice(0, 200)}${memo.length > 200 ? "…" : ""}` : ""
+  }`;
+  el.classList.remove("hidden");
+}
+
 function updateNavActive(routeName) {
   const nav = document.getElementById("nav-main");
   if (!nav) return;
@@ -1910,6 +2355,51 @@ function updateNavActive(routeName) {
   const key = routeName === "invoice" ? "history" : routeName;
   const link = nav.querySelector(`[data-nav-route="${key}"]`);
   if (link) link.classList.add("nav-link--active");
+}
+
+function updateDocumentTitle() {
+  if (shouldForceLoginView(currentUser)) {
+    document.title = authModeSignIn ? `Sign in · ${APP_NAME}` : `Create account · ${APP_NAME}`;
+    return;
+  }
+  const { route: r, id, editId } = parseHash();
+  const base = ` · ${APP_NAME}`;
+  switch (r) {
+    case "dashboard":
+      document.title = `Billing dashboard${base}`;
+      break;
+    case "settings":
+      document.title = `Business & GST settings${base}`;
+      break;
+    case "customers":
+      document.title = `Customer directory${base}`;
+      break;
+    case "history":
+      document.title = `Invoice register${base}`;
+      break;
+    case "quick-orders":
+      document.title = `Quick orders${base}`;
+      break;
+    case "create":
+      document.title = (editId ? "Edit GST invoice" : "New GST invoice") + base;
+      break;
+    case "invoice":
+      if (id) {
+        if (invoiceBreadcrumbState === "loading") {
+          document.title = `Loading invoice${base}`;
+        } else if (invoiceBreadcrumbState === "error") {
+          document.title = `Invoice${base}`;
+        } else {
+          const label = invoiceBreadcrumbLabel || id;
+          document.title = `${label}${base}`;
+        }
+      } else {
+        document.title = `${APP_NAME} — GST invoices`;
+      }
+      break;
+    default:
+      document.title = `${APP_NAME} — GST invoices`;
+  }
 }
 
 /**
@@ -1926,6 +2416,7 @@ function syncAppChrome() {
     bc.setAttribute("aria-hidden", "true");
     if (footNav) footNav.classList.add("hidden");
     updateNavActive(null);
+    updateDocumentTitle();
     return;
   }
 
@@ -1934,26 +2425,29 @@ function syncAppChrome() {
   if (footNav) footNav.classList.remove("hidden");
 
   const { route: r, id, editId } = parseHash();
-  const segments = [{ href: "#/dashboard", label: "Home" }];
+  const segments = [{ href: "#/dashboard", label: "Dashboard" }];
   switch (r) {
     case "dashboard":
-      segments.push({ current: true, label: "Dashboard" });
+      segments.push({ current: true, label: "Billing overview" });
       break;
     case "settings":
-      segments.push({ current: true, label: "Seller settings" });
+      segments.push({ current: true, label: "Business & GST settings" });
       break;
     case "customers":
-      segments.push({ current: true, label: "Customers" });
+      segments.push({ current: true, label: "Customer directory" });
       break;
     case "history":
-      segments.push({ current: true, label: "Invoice history" });
+      segments.push({ current: true, label: "Invoice register" });
+      break;
+    case "quick-orders":
+      segments.push({ current: true, label: "Quick orders" });
       break;
     case "create":
-      segments.push({ current: true, label: editId ? "Edit invoice" : "New invoice" });
+      segments.push({ current: true, label: editId ? "Edit GST invoice" : "New GST invoice" });
       break;
     case "invoice":
       if (id) {
-        segments.push({ href: "#/history", label: "Invoice history" });
+        segments.push({ href: "#/history", label: "Invoice register" });
         if (invoiceBreadcrumbState === "loading") {
           segments.push({ current: true, label: "Loading…", loading: true });
         } else if (invoiceBreadcrumbState === "error") {
@@ -1981,6 +2475,7 @@ function syncAppChrome() {
     .join("");
 
   updateNavActive(r === "invoice" ? "invoice" : r);
+  updateDocumentTitle();
 }
 
 /** Move focus to the visible view heading for screen readers (skip modals / form fields). */
@@ -1999,7 +2494,7 @@ function focusVisiblePageHeading() {
   if (
     active &&
     active.closest?.(
-      "[role='dialog'], .invoice-preview-modal, .customer-edit-modal, .customer-invoices-modal, .dashboard-detail-modal"
+      "[role='dialog'], .invoice-preview-modal, .customer-edit-modal, .customer-invoices-modal, .dashboard-detail-modal, .dashboard-qo-modal"
     )
   ) {
     return;
@@ -2019,6 +2514,9 @@ function focusVisiblePageHeading() {
 /** Max invoices per bulk ZIP (browser / time limits). */
 const BULK_HISTORY_PDF_MAX = 100;
 
+/** Host width for bulk ZIP PDFs — matches `.gst-invoice.invoice-a4-compact.invoice-a4-single`. */
+const INVOICE_PDF_CAPTURE_WIDTH_PX = 680;
+
 let historyBulkDownloadBusy = false;
 
 function uniquePdfFilenameInZip(baseName, used) {
@@ -2036,10 +2534,17 @@ function uniquePdfFilenameInZip(baseName, used) {
 async function invoiceNodeToPdfBlob(node) {
   const h2p = window.html2pdf;
   if (!h2p) throw new Error("PDF library not loaded.");
+  await new Promise((r) => requestAnimationFrame(r));
+  await new Promise((r) => requestAnimationFrame(r));
+  try {
+    await document.fonts?.ready?.catch?.(() => {});
+  } catch (_) {
+    /* ignore */
+  }
   const opts = {
     margin: [8, 8, 10, 8],
     filename: "x.pdf",
-    image: { type: "jpeg", quality: 0.95 },
+    image: { type: "jpeg", quality: 0.98 },
     html2canvas: {
       scale: 2,
       useCORS: true,
@@ -2049,14 +2554,14 @@ async function invoiceNodeToPdfBlob(node) {
       backgroundColor: "#ffffff",
     },
     jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    pagebreak: { mode: ["css"] },
+    pagebreak: { mode: ["css", "legacy"] },
   };
   const chain = h2p().set(opts).from(node);
   if (typeof chain.outputPdf === "function") {
-    return chain.outputPdf("blob");
+    return await chain.outputPdf("blob");
   }
   if (typeof chain.output === "function") {
-    return chain.output("blob");
+    return await chain.output("blob");
   }
   throw new Error("PDF export is not supported in this browser.");
 }
@@ -2099,8 +2604,7 @@ async function downloadHistoryFilteredZip() {
 
   const host = document.createElement("div");
   host.setAttribute("aria-hidden", "true");
-  host.style.cssText =
-    "position:fixed;left:-12000px;top:0;width:794px;max-width:100vw;visibility:hidden;pointer-events:none;z-index:-1;";
+  host.style.cssText = `position:fixed;left:-12000px;top:0;width:${INVOICE_PDF_CAPTURE_WIDTH_PX}px;max-width:100vw;pointer-events:none;z-index:-1;overflow:visible;`;
   document.body.appendChild(host);
 
   showLoading("Preparing ZIP…");
@@ -2168,6 +2672,8 @@ async function renderInvoicePage(id) {
     return;
   }
   root.innerHTML = "";
+  const invViewTitle = document.getElementById("invoice-view-page-title-text");
+  if (invViewTitle) invViewTitle.textContent = "GST invoice";
   if (!currentUser) {
     invoiceBreadcrumbState = "error";
     return;
@@ -2251,6 +2757,11 @@ async function renderInvoicePage(id) {
   root.appendChild(node);
   invoiceBreadcrumbLabel = inv.invoiceNumber || id;
   invoiceBreadcrumbState = "ready";
+  const invTitleEl = document.getElementById("invoice-view-page-title-text");
+  if (invTitleEl) {
+    const num = inv.invoiceNumber || id;
+    invTitleEl.textContent = num ? `GST invoice · ${num}` : "GST invoice";
+  }
 
   const dl = document.getElementById("btn-download-pdf");
   const pr = document.getElementById("btn-print");
@@ -2258,32 +2769,22 @@ async function renderInvoicePage(id) {
 
   dl.onclick = async () => {
     try {
-      const opt = window.html2pdf;
-      if (!opt) {
+      if (!window.html2pdf) {
         showToast("PDF library not loaded. Refresh the page and try again.", { type: "error" });
         return;
       }
       const safeName = String(inv.invoiceNumber || "invoice").replace(/[^a-zA-Z0-9-_]/g, "_");
       await withLoading(async () => {
         await new Promise((r) => requestAnimationFrame(r));
-        await opt()
-          .set({
-            margin: [8, 8, 10, 8],
-            filename: `${safeName}.pdf`,
-            image: { type: "jpeg", quality: 0.95 },
-            html2canvas: {
-              scale: 2,
-              useCORS: true,
-              logging: false,
-              scrollY: 0,
-              scrollX: 0,
-              backgroundColor: "#ffffff",
-            },
-            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-            pagebreak: { mode: ["css"] },
-          })
-          .from(node)
-          .save();
+        const blob = await invoiceNodeToPdfBlob(node);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeName}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       }, "Generating PDF…");
       showToast("PDF generated successfully.");
     } catch (e) {
@@ -2341,6 +2842,7 @@ setupCustomerPaymentModal();
 setupCustomerInvoicesModal();
 setupLogout();
 setupHistoryBulkDownload();
+setupQuickOrdersPage();
 registerServiceWorker();
 
 if (isConfigPlaceholder() && bootEl) {

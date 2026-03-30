@@ -45,15 +45,22 @@ function formatInvoiceNumber(seq) {
   return `INV-${String(seq).padStart(4, "0")}`;
 }
 
-/** Amount collected on this invoice from payment status + optional partial amount. */
-export function computeInvoicePaymentAmounts(total, paymentStatus, amountPaidRaw) {
+/**
+ * Amount collected on this invoice from payment status + optional partial amount.
+ * `previousBalance` is what the customer owed before this invoice (negative means they had advance credit).
+ * Partial payments may exceed the invoice total to settle prior dues or create advance (negative balance).
+ */
+export function computeInvoicePaymentAmounts(total, paymentStatus, amountPaidRaw, previousBalance = 0) {
   const t = round2(Number(total) || 0);
+  const prev = round2(Number(previousBalance) || 0);
   const st = paymentStatus || "unpaid";
   if (st === "paid") return { amountPaidOnInvoice: t, normalizedStatus: "paid" };
   if (st === "partial") {
-    const p = round2(Math.min(t, Math.max(0, Number(amountPaidRaw) || 0)));
+    const p = round2(Math.max(0, Number(amountPaidRaw) || 0));
     if (p <= 0) return { amountPaidOnInvoice: 0, normalizedStatus: "unpaid" };
-    if (p >= t) return { amountPaidOnInvoice: t, normalizedStatus: "paid" };
+    const afterPayment = round2(prev + t - p);
+    if (p < t) return { amountPaidOnInvoice: p, normalizedStatus: "partial" };
+    if (afterPayment <= 0) return { amountPaidOnInvoice: p, normalizedStatus: "paid" };
     return { amountPaidOnInvoice: p, normalizedStatus: "partial" };
   }
   return { amountPaidOnInvoice: 0, normalizedStatus: "unpaid" };
@@ -155,11 +162,6 @@ export async function saveInvoice(db, uid, payload) {
   const cRef = counterRef(db, uid);
   const customerId = (payload.customerId || "").trim();
   const total = round2(Number(payload.total) || 0);
-  const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
-    total,
-    payload.paymentStatus,
-    payload.amountPaidOnInvoice
-  );
   const paymentMethod = String(payload.paymentMethod || "credit_sale").trim() || "credit_sale";
 
   return runTransaction(db, async (transaction) => {
@@ -187,6 +189,13 @@ export async function saveInvoice(db, uid, payload) {
       }
       prev = round2(Number(cd.outstandingBalance) || 0);
     }
+
+    const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+      total,
+      payload.paymentStatus,
+      payload.amountPaidOnInvoice,
+      prev
+    );
 
     const afterInvoice = round2(prev + total);
     const afterPayment = round2(afterInvoice - amountPaidOnInvoice);
@@ -264,14 +273,8 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
   }
 
   const total = round2(Number(payload.total) || 0);
-  const { amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
-    total,
-    payload.paymentStatus,
-    payload.amountPaidOnInvoice
-  );
   const paymentMethod = String(payload.paymentMethod || "credit_sale").trim() || "credit_sale";
   const newCustomerId = (payload.customerId || "").trim();
-  const newNet = round2(total - amountPaidOnInvoice);
 
   return runTransaction(db, async (transaction) => {
     const invSnap = await transaction.get(invRef);
@@ -319,6 +322,8 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
       }
     }
 
+    let amountPaidOnInvoice = 0;
+    let normalizedStatus = "unpaid";
     let prevSnap = 0;
     let currSnap = 0;
 
@@ -327,12 +332,14 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
     if (sameCustomer) {
       const b0 = round2(Number(oldCustSnap.data().outstandingBalance) || 0);
       prevSnap = round2(b0 - oldNet);
+      ({ amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+        total,
+        payload.paymentStatus,
+        payload.amountPaidOnInvoice,
+        prevSnap
+      ));
       currSnap = round2(prevSnap + total - amountPaidOnInvoice);
-      if (currSnap < -0.01) {
-        throw new Error(
-          "Outstanding balance cannot be negative. Reduce the total or increase payment on this invoice."
-        );
-      }
+      const newNet = round2(total - amountPaidOnInvoice);
       transaction.update(newCustRef, {
         outstandingBalance: currSnap,
         balanceUpdatedAt: serverTimestamp(),
@@ -354,11 +361,6 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
       if (oldCustomerId && oldCustRef) {
         const bOld = round2(Number(oldCustSnap.data().outstandingBalance) || 0);
         const afterOld = round2(bOld - oldNet);
-        if (afterOld < -0.01) {
-          throw new Error(
-            "This change would leave a negative balance for the previous customer. Check totals and payments."
-          );
-        }
         transaction.update(oldCustRef, {
           outstandingBalance: afterOld,
           balanceUpdatedAt: serverTimestamp(),
@@ -380,12 +382,14 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
       if (newCustomerId && newCustRef) {
         const bNew = round2(Number(newCustSnap.data().outstandingBalance) || 0);
         prevSnap = bNew;
-        currSnap = round2(bNew + newNet);
-        if (currSnap < -0.01) {
-          throw new Error(
-            "Outstanding balance cannot be negative. Reduce the total or increase payment on this invoice."
-          );
-        }
+        ({ amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+          total,
+          payload.paymentStatus,
+          payload.amountPaidOnInvoice,
+          prevSnap
+        ));
+        currSnap = round2(prevSnap + total - amountPaidOnInvoice);
+        const newNet = round2(total - amountPaidOnInvoice);
         transaction.update(newCustRef, {
           outstandingBalance: currSnap,
           balanceUpdatedAt: serverTimestamp(),
@@ -404,6 +408,12 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
         }
       } else {
         prevSnap = 0;
+        ({ amountPaidOnInvoice, normalizedStatus } = computeInvoicePaymentAmounts(
+          total,
+          payload.paymentStatus,
+          payload.amountPaidOnInvoice,
+          0
+        ));
         currSnap = 0;
       }
     }

@@ -10,6 +10,7 @@ import {
   where,
   serverTimestamp,
 } from "firebase/firestore";
+import { round2 } from "./invoices.js";
 
 /**
  * @param {import('firebase/firestore').Firestore} db
@@ -47,7 +48,7 @@ export async function addCustomer(db, uid, data) {
     consigneePhone: (data.consigneePhone || "").trim(),
     consigneeEmail: (data.consigneeEmail || "").trim(),
     consigneeSameAsBuyer: Boolean(data.consigneeSameAsBuyer),
-    outstandingBalance: 0,
+    outstandingBalance: round2(Math.max(0, Number(data.outstandingBalance) || 0)),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

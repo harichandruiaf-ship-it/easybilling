@@ -40,3 +40,15 @@ export function showToast(message, options = {}) {
 
   setTimeout(removeEl, duration);
 }
+
+/**
+ * Show a message as an error toast and optionally mirror it to inline form error element(s).
+ * @param {string} message
+ * @param {{ errEl?: HTMLElement | null, errEl2?: HTMLElement | null }} [options]
+ */
+export function showValidationToast(message, options = {}) {
+  const { errEl, errEl2 } = options;
+  if (errEl) errEl.textContent = message;
+  if (errEl2) errEl2.textContent = message;
+  showToast(message, { type: "error" });
+}

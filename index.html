@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#1a5f4a" />
-  <meta name="description" content="Easy Billing — GST invoices" />
-  <title>Easy Billing</title>
+  <meta name="description" content="Easy Billing — GST invoices, customer directory, and billing dashboard for Indian businesses." />
+  <title>Easy Billing — GST invoices</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/app.css" />
@@ -23,14 +23,39 @@
 </head>
 <body>
   <header class="app-header">
-    <a href="#/dashboard" class="logo">Easy Billing</a>
+    <a href="#/dashboard" class="logo logo-with-mark">
+      <img class="logo-mark" src="icons/icon-192.png" alt="" width="28" height="28" decoding="async" />
+      <span>Easy Billing</span>
+    </a>
     <nav class="nav-auth hidden" id="nav-main" aria-label="Main">
-      <a href="#/dashboard" data-nav-route="dashboard">Home</a>
-      <a href="#/create" data-nav-route="create">New invoice</a>
-      <a href="#/customers" data-nav-route="customers">Customers</a>
-      <a href="#/history" data-nav-route="history">History</a>
-      <a href="#/settings" data-nav-route="settings">Settings</a>
-      <button type="button" class="btn btn-ghost" id="btn-logout">Sign out</button>
+      <a href="#/dashboard" data-nav-route="dashboard" class="nav-link" title="Billing overview and charts">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <a href="#/quick-orders" data-nav-route="quick-orders" class="nav-link" title="Jot orders to bill later">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        <span>Quick orders</span>
+      </a>
+      <a href="#/create" data-nav-route="create" class="nav-link" title="Create a new GST tax invoice">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        <span>New invoice</span>
+      </a>
+      <a href="#/customers" data-nav-route="customers" class="nav-link" title="Buyers and parties">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Customers</span>
+      </a>
+      <a href="#/history" data-nav-route="history" class="nav-link" title="Saved invoices and GST records">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+        <span>Invoices</span>
+      </a>
+      <a href="#/settings" data-nav-route="settings" class="nav-link" title="Seller GST, bank &amp; invoice terms">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span>Business settings</span>
+      </a>
+      <button type="button" class="btn btn-ghost btn-nav-logout" id="btn-logout">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Sign out</span>
+      </button>
     </nav>
   </header>
 
@@ -162,7 +187,12 @@
 
         <div class="login-panel">
           <div class="login-panel-inner">
-            <h1 class="login-title" id="login-page-title">Log in</h1>
+            <h1 class="login-title page-title-login" id="login-page-title">
+              <span class="page-title-icon page-title-icon--login" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </span>
+              <span class="page-title-text" id="login-page-title-text">Sign in</span>
+            </h1>
             <p class="login-aux">
               <span id="auth-mode-lead">Don't have an account?</span>
               <button type="button" class="btn-auth-inline" id="btn-auth-toggle">Create an account</button>
@@ -299,38 +329,137 @@
 
     <!-- Dashboard -->
     <section id="view-dashboard" class="view container container-wide" hidden>
-      <h1 class="dashboard-page-title">Business dashboard</h1>
+      <h1 class="dashboard-page-title page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+        </span>
+        <span class="page-title-text">Billing dashboard</span>
+      </h1>
       <p class="page-quick-links muted small">
-        <a href="#/create" class="text-link">New invoice</a>
+        <a href="#/create" class="text-link">New GST invoice</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/history" class="text-link">Invoice history</a>
+        <a href="#/history" class="text-link">Invoice register</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/customers" class="text-link">Customers</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/settings" class="text-link">Seller settings</a>
+        <a href="#/settings" class="text-link">Business settings</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/quick-orders" class="text-link">Quick orders</a>
       </p>
       <div id="dashboard-root" class="dashboard-root"></div>
+    </section>
+
+    <!-- Quick orders (draft reminders before invoicing) -->
+    <section id="view-quick-orders" class="view container" hidden>
+      <h1 class="page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        </span>
+        <span class="page-title-text">Quick orders</span>
+      </h1>
+      <p class="muted">
+        When someone places an order by phone or message, capture it here instead of paper. Open reminders on the dashboard until you create a GST invoice.
+      </p>
+      <p class="page-quick-links muted small">
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/create" class="text-link">New GST invoice</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/customers" class="text-link">Customers</a>
+      </p>
+
+      <form id="form-quick-order" class="card form-block quick-order-form" novalidate>
+        <input type="hidden" id="quick-order-edit-id" value="" />
+        <h2 class="h2-small">New quick order</h2>
+        <div class="inline-two">
+          <label>
+            Customer name <span class="field-required" aria-hidden="true">*</span>
+            <input type="text" id="qo-customer-name" maxlength="200" autocomplete="name" required />
+          </label>
+          <label>
+            Phone
+            <input type="tel" id="qo-customer-phone" maxlength="20" autocomplete="tel" />
+          </label>
+        </div>
+        <label>
+          Send / deliver by
+          <input type="date" id="qo-send-date" class="input-date" />
+        </label>
+        <h3 class="h3-small">Products</h3>
+        <p class="muted small">Add lines as you hear them — you will set rates and GST when you create the invoice.</p>
+        <div id="qo-lines-wrap" class="qo-lines-wrap"></div>
+        <button type="button" class="btn btn-secondary" id="btn-qo-add-line">Add product line</button>
+        <label>
+          Notes
+          <textarea id="qo-memo" rows="2" maxlength="500" placeholder="Optional — payment terms, address, special instructions…"></textarea>
+        </label>
+        <p class="form-error" id="qo-form-error" role="alert"></p>
+        <div class="btn-row wrap">
+          <button type="submit" class="btn btn-primary" id="btn-qo-save">Save quick order</button>
+          <button type="button" class="btn btn-secondary hidden" id="btn-qo-cancel-edit">Cancel edit</button>
+        </div>
+      </form>
+
+      <h2 class="h2-small qo-list-heading">Open reminders</h2>
+      <p class="muted small" id="qo-empty" hidden>No open quick orders. Saved items appear here and on the dashboard.</p>
+      <ul class="quick-order-list" id="qo-list"></ul>
     </section>
 
     <div id="dashboard-detail-modal" class="dashboard-detail-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="dashboard-detail-title">
       <div class="dashboard-detail-backdrop" id="dashboard-detail-backdrop" tabindex="-1"></div>
       <div class="dashboard-detail-panel card">
         <div class="dashboard-detail-head">
-          <h2 id="dashboard-detail-title">Details</h2>
+          <h2 id="dashboard-detail-title" class="modal-heading">
+            <span class="modal-heading-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </span>
+            <span class="modal-heading-text" id="dashboard-detail-title-text">Details</span>
+          </h2>
           <button type="button" class="btn btn-ghost dashboard-detail-close" id="dashboard-detail-close" aria-label="Close">✕</button>
         </div>
         <div id="dashboard-detail-body" class="dashboard-detail-body"></div>
       </div>
     </div>
 
+    <!-- Quick order detail (dashboard reminder) -->
+    <div
+      id="dashboard-qo-modal"
+      class="dashboard-qo-modal hidden"
+      aria-hidden="true"
+      role="presentation"
+    >
+      <div class="dashboard-qo-modal-backdrop" id="dashboard-qo-modal-backdrop" tabindex="-1"></div>
+      <div
+        class="dashboard-qo-modal-panel card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dashboard-qo-modal-title"
+      >
+        <div class="dashboard-qo-modal-head">
+          <h2 id="dashboard-qo-modal-title">Quick order</h2>
+          <button type="button" class="btn btn-ghost dashboard-qo-modal-close" id="dashboard-qo-modal-close" aria-label="Close">✕</button>
+        </div>
+        <div id="dashboard-qo-modal-body" class="dashboard-qo-modal-body"></div>
+        <div class="btn-row wrap dashboard-qo-modal-actions">
+          <button type="button" class="btn btn-secondary" id="dashboard-qo-modal-mark-done">Mark as done</button>
+          <a class="btn btn-primary" id="dashboard-qo-modal-create" href="#/create">Create GST invoice</a>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings -->
     <section id="view-settings" class="view container" hidden>
-      <h1>Seller settings</h1>
-      <p class="muted">These appear on every invoice.</p>
+      <h1 class="page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </span>
+        <span class="page-title-text">Business &amp; GST settings</span>
+      </h1>
+      <p class="muted">Seller details, tax rates, and bank info printed on every GST invoice.</p>
       <p class="page-quick-links muted small">
-        <a href="#/create" class="text-link">New invoice</a>
+        <a href="#/create" class="text-link">New GST invoice</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/history" class="text-link">History</a>
+        <a href="#/history" class="text-link">Invoice register</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/customers" class="text-link">Customers</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
@@ -432,15 +561,29 @@
 
     <!-- Create invoice -->
     <section id="view-create" class="view container container-wide" hidden>
-      <h1 id="create-page-title">Create invoice</h1>
+      <h1 id="create-page-title" class="page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </span>
+        <span class="page-title-text" id="create-page-title-text">New GST invoice</span>
+      </h1>
       <p class="page-quick-links muted small">
         <a href="#/dashboard" class="text-link">Dashboard</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/history" class="text-link">History</a>
+        <a href="#/history" class="text-link">Invoice register</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/customers" class="text-link">Customers</a>
       </p>
       <p id="create-page-hint" class="muted small" hidden></p>
+      <div id="create-quick-order-banner" class="create-quick-order-banner hidden" role="region" aria-label="Quick order summary">
+        <div class="create-quick-order-banner-inner">
+          <div class="create-quick-order-banner-copy">
+            <strong class="create-quick-order-banner-label">From quick order</strong>
+            <p id="create-quick-order-banner-text" class="create-quick-order-banner-text muted small"></p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-small" id="btn-create-qo-hide-banner">Hide note</button>
+        </div>
+      </div>
       <form id="form-invoice" class="card form-block" novalidate>
         <h2 class="h2-small">Customer</h2>
         <label class="inv-customer-search-label">
@@ -628,7 +771,7 @@
         </div>
         <h2 class="h2-small">Payment</h2>
         <p class="muted small" id="inv-outstanding-hint">
-          Outstanding before this invoice: <strong id="inv-customer-outstanding">—</strong>
+          Balance before this invoice (dues or advance): <strong id="inv-customer-outstanding">—</strong>
         </p>
         <div class="inline-two">
           <label>
@@ -654,7 +797,7 @@
           </label>
         </div>
         <label id="inv-amount-paid-wrap" class="hidden">
-          Amount paid on this invoice (₹)
+          Amount received (₹) — may include prior dues; overpayment is stored as advance (credit)
           <span class="field-required" aria-hidden="true">*</span>
           <input type="number" id="inv-amount-paid-on-invoice" min="0" step="0.01" placeholder="0" />
         </label>
@@ -700,7 +843,12 @@
       <div id="invoice-preview-modal" class="invoice-preview-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title">
         <div class="invoice-preview-backdrop" id="invoice-preview-backdrop" tabindex="-1"></div>
         <div class="invoice-preview-panel card">
-          <h2 id="invoice-preview-title">Invoice preview</h2>
+          <h2 id="invoice-preview-title" class="modal-heading">
+            <span class="modal-heading-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </span>
+            <span class="modal-heading-text">Review GST invoice</span>
+          </h2>
           <p id="invoice-preview-hint" class="muted small invoice-preview-hint">Check all details. Invoice number and official date are assigned when you generate the invoice.</p>
           <p class="form-error" id="invoice-preview-error" role="alert"></p>
           <div id="invoice-preview-scroll" class="invoice-preview-scroll"></div>
@@ -714,16 +862,21 @@
 
     <!-- Customers -->
     <section id="view-customers" class="view container" hidden>
-      <h1>Customers</h1>
-      <p class="muted">Saved buyers — select them when creating an invoice.</p>
+      <h1 class="page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </span>
+        <span class="page-title-text">Customer directory</span>
+      </h1>
+      <p class="muted">Saved buyers and parties — pick them when billing, or register a new customer below.</p>
       <p class="page-quick-links muted small">
-        <a href="#/create" class="text-link">New invoice</a>
+        <a href="#/create" class="text-link">New GST invoice</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/history" class="text-link">History</a>
+        <a href="#/history" class="text-link">Invoice register</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/dashboard" class="text-link">Dashboard</a>
       </p>
-      <div class="page-toolbar">
+      <div class="page-toolbar customers-toolbar">
         <label class="page-search-label">
           Search customers
           <input
@@ -736,15 +889,21 @@
             aria-label="Search customers"
           />
         </label>
+        <button type="button" class="btn btn-primary" id="btn-customers-add">Add customer</button>
       </div>
-      <p class="muted" id="customers-empty">No customers yet. <a href="#/create" class="text-link">Create an invoice</a> and save a new buyer.</p>
+      <p class="muted" id="customers-empty">No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.</p>
       <ul class="invoice-list" id="customers-list"></ul>
     </section>
 
     <div id="customer-edit-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-edit-title">
       <div class="customer-edit-backdrop" id="customer-edit-backdrop" tabindex="-1"></div>
       <div class="customer-edit-panel card form-block">
-        <h2 id="customer-edit-title">Edit customer</h2>
+        <h2 id="customer-edit-title" class="modal-heading">
+          <span class="modal-heading-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          <span class="modal-heading-text" id="customer-edit-title-text">Edit customer</span>
+        </h2>
         <form id="form-edit-customer" novalidate>
           <p class="form-error" id="edit-customer-error" role="alert"></p>
           <h3 class="h3-small">Buyer (Bill to)</h3>
@@ -792,6 +951,14 @@
             Email (optional)
             <input type="email" id="edit-cust-email" maxlength="120" />
           </label>
+
+          <div id="edit-cust-opening-wrap" class="hidden">
+            <label>
+              Opening outstanding (₹) <span class="muted small">(optional)</span>
+              <input type="number" id="edit-cust-opening" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+            </label>
+            <p class="muted small">If this customer already owed you before you started using Easy Billing, enter that amount here.</p>
+          </div>
 
           <h3 class="h3-small">Consignee (Ship to)</h3>
           <label class="check-row">
@@ -844,7 +1011,12 @@
     <div id="customer-payment-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-payment-title">
       <div class="customer-edit-backdrop" id="customer-payment-backdrop" tabindex="-1"></div>
       <div class="customer-edit-panel card form-block">
-        <h2 id="customer-payment-title">Record payment</h2>
+        <h2 id="customer-payment-title" class="modal-heading">
+          <span class="modal-heading-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </span>
+          <span class="modal-heading-text">Record payment</span>
+        </h2>
         <p class="muted small" id="customer-payment-for"></p>
         <p class="muted small">Outstanding: <strong id="customer-payment-outstanding"></strong></p>
         <form id="form-customer-payment" novalidate>
@@ -883,7 +1055,12 @@
     <div id="customer-invoices-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-invoices-modal-heading">
       <div class="customer-edit-backdrop" id="customer-invoices-modal-backdrop" tabindex="-1"></div>
       <div class="customer-edit-panel card customer-invoices-modal-panel">
-        <h2 id="customer-invoices-modal-heading">Invoices</h2>
+        <h2 id="customer-invoices-modal-heading" class="modal-heading">
+          <span class="modal-heading-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          </span>
+          <span class="modal-heading-text">Customer invoices</span>
+        </h2>
         <p class="muted small" id="customer-invoices-modal-sub"></p>
         <div class="customer-invoices-modal-scroll">
           <table class="customer-invoices-table">
@@ -905,10 +1082,15 @@
 
     <!-- History -->
     <section id="view-history" class="view container container-wide" hidden>
-      <h1>Invoice history</h1>
-      <p class="muted">Search and filter invoices saved to your account.</p>
+      <h1 class="page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+        </span>
+        <span class="page-title-text">Invoice register</span>
+      </h1>
+      <p class="muted">Search, filter, and export GST invoices saved to your account.</p>
       <p class="page-quick-links muted small">
-        <a href="#/create" class="text-link">New invoice</a>
+        <a href="#/create" class="text-link">New GST invoice</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/customers" class="text-link">Customers</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
@@ -931,7 +1113,12 @@
           </label>
         </div>
         <div class="history-filters-head">
-          <h2 class="history-filters-heading">Filters</h2>
+          <h2 class="history-filters-heading">
+            <span class="history-filters-heading-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            </span>
+            Search &amp; filters
+          </h2>
           <label class="history-filter-mode">
             Filter mode
             <select id="hist-filter-mode" autocomplete="off">
@@ -1062,15 +1249,21 @@
 
     <!-- Invoice view / print -->
     <section id="view-invoice" class="view container" hidden>
+      <h1 class="page-title page-title--invoice no-print" id="invoice-view-page-title" tabindex="-1">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <span class="page-title-text" id="invoice-view-page-title-text">GST invoice</span>
+      </h1>
       <p class="page-quick-links muted small no-print">
         <a href="#/dashboard" class="text-link">Dashboard</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/history" class="text-link">Invoice history</a>
+        <a href="#/history" class="text-link">Invoice register</a>
         <span class="page-quick-sep" aria-hidden="true">·</span>
-        <a href="#/create" class="text-link">New invoice</a>
+        <a href="#/create" class="text-link">New GST invoice</a>
       </p>
       <div class="invoice-actions btn-row wrap no-print">
-        <a href="#/history" class="btn btn-secondary">Back to history</a>
+        <a href="#/history" class="btn btn-secondary">Back to invoice register</a>
         <a class="btn btn-secondary" id="btn-invoice-edit" href="#/create" hidden>Edit invoice</a>
         <button type="button" class="btn btn-danger" id="btn-invoice-delete" hidden>Delete invoice</button>
         <button type="button" class="btn btn-primary" id="btn-download-pdf">Download PDF</button>
@@ -1081,13 +1274,14 @@
   </main>
 
   <footer class="app-footer muted small">
-    <span class="app-footer-brand">Easy Billing — GST invoice helper</span>
+    <span class="app-footer-brand">Easy Billing — GST billing &amp; invoicing</span>
     <span class="app-footer-nav hidden" id="footer-quick-nav" aria-label="Quick links">
-      <a href="#/dashboard">Home</a>
-      <a href="#/create">New invoice</a>
-      <a href="#/history">History</a>
-      <a href="#/customers">Customers</a>
-      <a href="#/settings">Settings</a>
+      <a href="#/dashboard" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a>
+      <a href="#/quick-orders" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Quick orders</a>
+      <a href="#/create" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>New invoice</a>
+      <a href="#/history" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>Invoices</a>
+      <a href="#/customers" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Customers</a>
+      <a href="#/settings" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>Settings</a>
     </span>
   </footer>
 

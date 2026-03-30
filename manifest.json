@@ -1,7 +1,7 @@
 {
   "name": "Easy Billing",
   "short_name": "Billing",
-  "description": "GST invoice generator",
+  "description": "GST billing — invoices, register, customers, and business settings",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

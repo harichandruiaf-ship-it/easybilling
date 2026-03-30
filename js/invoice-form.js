@@ -1,5 +1,6 @@
 import { computeTotals, round2 } from "./invoices.js";
 import { withLoading } from "./loading.js";
+import { showValidationToast } from "./toast.js";
 
 const GSTIN_REGEX = /^([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})$/;
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
@@ -78,7 +79,9 @@ function toggleConsigneeField() {
 
 function formatMoneyInr(n) {
   if (n == null || Number.isNaN(Number(n))) return "—";
-  return `₹ ${round2(Number(n)).toFixed(2)}`;
+  const v = round2(Number(n));
+  if (v < 0) return `−₹ ${Math.abs(v).toFixed(2)} (advance)`;
+  return `₹ ${v.toFixed(2)}`;
 }
 
 function syncPaymentPartialUI() {
@@ -216,13 +219,17 @@ export function initInvoiceForm(opts) {
     }
 
     const picked = customerList.find((c) => c.id === id);
-    if (picked) customerSearchInput.value = picked.name || "";
+    if (picked) {
+      customerSearchInput.value = picked.name || "";
+      setOutstandingLabel(round2(Number(picked.outstandingBalance) || 0));
+    }
 
     if (opts.loadCustomer) {
       try {
         await withLoading(async () => {
           const c = await opts.loadCustomer(id);
           if (!c) return;
+          setOutstandingLabel(round2(Number(c.outstandingBalance) || 0));
           document.getElementById("inv-buyer-name").value = c.name || "";
         document.getElementById("inv-buyer-address").value = c.address || "";
         document.getElementById("inv-buyer-phone").value = c.phone || "";
@@ -249,7 +256,7 @@ export function initInvoiceForm(opts) {
       } catch (ex) {
         const errEl = document.getElementById("invoice-form-error");
         const msg = ex && ex.message ? String(ex.message) : "Could not load customer.";
-        if (errEl) errEl.textContent = msg;
+        showValidationToast(msg, { errEl });
       }
     }
     closeCustomerListbox();
@@ -411,7 +418,7 @@ export function initInvoiceForm(opts) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = document.getElementById("invoice-form-error");
-    errEl.textContent = "";
+    if (errEl) errEl.textContent = "";
 
     const buyerName = document.getElementById("inv-buyer-name").value.trim();
     const buyerAddress = document.getElementById("inv-buyer-address").value.trim();
@@ -439,43 +446,43 @@ export function initInvoiceForm(opts) {
     if (paymentStatus === "partial") {
       const rawPaid = parseFloat(document.getElementById("inv-amount-paid-on-invoice")?.value);
       if (!Number.isFinite(rawPaid) || rawPaid <= 0) {
-        errEl.textContent = "Enter amount paid for a partial payment.";
+        showValidationToast("Enter amount paid for a partial payment.", { errEl });
         return;
       }
       amountPaidOnInvoice = round2(rawPaid);
     }
 
     if (!buyerName) {
-      errEl.textContent = "Enter buyer name.";
+      showValidationToast("Enter buyer name.", { errEl });
       return;
     }
     if (!buyerAddress) {
-      errEl.textContent = "Enter buyer address.";
+      showValidationToast("Enter buyer address.", { errEl });
       return;
     }
     if (!buyerPhone) {
-      errEl.textContent = "Enter phone number.";
+      showValidationToast("Enter phone number.", { errEl });
       return;
     }
     if (!isValidGstinOptional(buyerGstin)) {
-      errEl.textContent = "Invalid GSTIN format (optional field).";
+      showValidationToast("Invalid GSTIN format (optional field).", { errEl });
       return;
     }
     if (!isValidPanOptional(buyerPan)) {
-      errEl.textContent = "Invalid PAN format (optional field).";
+      showValidationToast("Invalid PAN format (optional field).", { errEl });
       return;
     }
     if (!consigneeSame) {
       if (!consigneeName) {
-        errEl.textContent = "Enter consignee name or mark same as buyer.";
+        showValidationToast("Enter consignee name or mark same as buyer.", { errEl });
         return;
       }
       if (!consigneeAddress) {
-        errEl.textContent = "Enter consignee address.";
+        showValidationToast("Enter consignee address.", { errEl });
         return;
       }
       if (!isValidGstinOptional(consigneeGstin)) {
-        errEl.textContent = "Invalid consignee GSTIN format (optional field).";
+        showValidationToast("Invalid consignee GSTIN format (optional field).", { errEl });
         return;
       }
     }
@@ -491,15 +498,15 @@ export function initInvoiceForm(opts) {
       const qn = Number.isFinite(qty) ? qty : 0;
       const rn = Number.isFinite(rate) ? rate : 0;
       if (!name) {
-        errEl.textContent = "Each row needs an item name.";
+        showValidationToast("Each row needs an item name.", { errEl });
         return;
       }
       if (qn <= 0) {
-        errEl.textContent = "Quantity must be greater than zero for all items.";
+        showValidationToast("Quantity must be greater than zero for all items.", { errEl });
         return;
       }
       if (rn < 0) {
-        errEl.textContent = "Rate cannot be negative.";
+        showValidationToast("Rate cannot be negative.", { errEl });
         return;
       }
       items.push({
@@ -513,15 +520,11 @@ export function initInvoiceForm(opts) {
     }
 
     if (!items.length) {
-      errEl.textContent = "Add at least one item.";
+      showValidationToast("Add at least one item.", { errEl });
       return;
     }
 
     const totals = recalcTotals();
-    if (paymentStatus === "partial" && amountPaidOnInvoice > totals.total) {
-      errEl.textContent = "Amount paid cannot exceed invoice total.";
-      return;
-    }
     if (opts.onPreview) {
       try {
         await opts.onPreview({
@@ -581,7 +584,7 @@ export function initInvoiceForm(opts) {
       });
       } catch (ex) {
         const msg = ex && ex.message ? String(ex.message) : "Could not open preview.";
-        errEl.textContent = msg;
+        showValidationToast(msg, { errEl });
       }
     }
   });
@@ -707,6 +710,45 @@ export function initInvoiceForm(opts) {
       }
       closeCustomerListbox();
       if (listbox) listbox.innerHTML = "";
+    },
+    /**
+     * Prefill from a saved quick order (draft). Caller should run after resetForm + settings load.
+     * @param {{ customerName?: string, customerPhone?: string, sendDate?: string, memo?: string, lines?: Array<{ productName?: string, quantity?: number, unit?: string }> }} draft
+     */
+    applyQuickOrderDraft(draft) {
+      resetForm();
+      const name = (draft?.customerName || "").trim();
+      if (name) document.getElementById("inv-buyer-name").value = name;
+      const phone = (draft?.customerPhone || "").trim();
+      if (phone) document.getElementById("inv-buyer-phone").value = phone;
+      const memo = (draft?.memo || "").trim();
+      if (memo) {
+        const other = document.getElementById("inv-other-refs");
+        if (other) other.value = memo.slice(0, 200);
+      }
+      const sd = (draft?.sendDate || "").trim();
+      if (sd) {
+        const dn = document.getElementById("inv-delivery-note-date");
+        if (dn) dn.value = sd;
+      }
+      const rawLines = Array.isArray(draft?.lines) ? draft.lines : [];
+      const lines =
+        rawLines.length > 0
+          ? rawLines
+          : [{ productName: "", quantity: 1, unit: "Pcs" }];
+      tbody.innerHTML = "";
+      lines.forEach((line) => {
+        createRow(tbody, {
+          name: (line.productName || "").trim(),
+          quantity: Number(line.quantity) > 0 ? Number(line.quantity) : 1,
+          rate: 0,
+          per: (line.unit || "Pcs").trim() || "Pcs",
+        });
+      });
+      if (!tbody.querySelector("tr")) {
+        createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+      }
+      recalcTotals();
     },
   };
 }

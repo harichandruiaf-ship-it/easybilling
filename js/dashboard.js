@@ -3,6 +3,8 @@
  */
 import { listInvoicesForUser, round2 } from "./invoices.js";
 import { listCustomers } from "./customers.js";
+import { listOpenQuickOrders, getQuickOrderById, markQuickOrderDone } from "./quick-orders.js";
+import { showToast } from "./toast.js";
 import { computeAnalytics } from "./dashboard-analytics.js";
 
 const Chart = globalThis.Chart;
@@ -10,6 +12,9 @@ const Chart = globalThis.Chart;
 let chartInstances = [];
 let modalChart = null;
 let lastAnalytics = null;
+
+/** Latest mount context for quick-order modal / dismiss actions */
+let lastDashboardMount = { db: null, uid: null };
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -81,6 +86,143 @@ function buildKpiCard(label, value, sub, accent) {
       <span class="dashboard-kpi-value">${escapeHtml(value)}</span>
       ${sub ? `<span class="dashboard-kpi-sub">${escapeHtml(sub)}</span>` : ""}
     </div>`;
+}
+
+function formatQuickOrderDate(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+
+function closeDashboardQuickOrderModal() {
+  const modal = document.getElementById("dashboard-qo-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    modal.dataset.currentQoId = "";
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} order
+ */
+function buildQuickOrderDetailHtml(order) {
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+  const rows = lines
+    .filter((l) => (l.productName || "").trim())
+    .map(
+      (l) =>
+        `<tr><td>${escapeHtml((l.productName || "").trim())}</td><td class="num">${escapeHtml(String(l.quantity ?? ""))}</td><td>${escapeHtml((l.unit || "Pcs").trim())}</td></tr>`
+    )
+    .join("");
+  const phone = (order.customerPhone || "").trim();
+  const memo = (order.memo || "").trim();
+  return `
+    <dl class="dashboard-qo-dl">
+      <div><dt>Send / deliver by</dt><dd>${escapeHtml(formatQuickOrderDate(order.sendDate))}</dd></div>
+      <div><dt>Phone</dt><dd>${phone ? escapeHtml(phone) : "—"}</dd></div>
+    </dl>
+    <p class="small muted" style="margin:0 0 0.5rem">Products</p>
+    <div class="table-wrap">
+      <table class="dashboard-qo-table">
+        <thead><tr><th>Product</th><th class="num">Qty</th><th>Unit</th></tr></thead>
+        <tbody>${rows.length ? rows : `<tr><td colspan="3" class="muted">—</td></tr>`}</tbody>
+      </table>
+    </div>
+    ${memo ? `<p class="dashboard-qo-memo"><strong>Notes</strong><br/>${escapeHtml(memo)}</p>` : ""}`;
+}
+
+/**
+ * @param {import('firebase/firestore').Firestore} db
+ * @param {string} uid
+ * @param {string} orderId
+ */
+async function openDashboardQuickOrderModal(db, uid, orderId) {
+  let order;
+  try {
+    order = await getQuickOrderById(db, orderId);
+  } catch (ex) {
+    showToast(ex?.message || "Could not load quick order.", { type: "error" });
+    return;
+  }
+  if (!order || order.userId !== uid || (order.status || "open") !== "open") {
+    showToast("Quick order not found or already completed.", { type: "error" });
+    return;
+  }
+  const modal = document.getElementById("dashboard-qo-modal");
+  const body = document.getElementById("dashboard-qo-modal-body");
+  const title = document.getElementById("dashboard-qo-modal-title");
+  const createA = document.getElementById("dashboard-qo-modal-create");
+  if (!modal || !body) return;
+  if (title) title.textContent = order.customerName || "Quick order";
+  body.innerHTML = buildQuickOrderDetailHtml(order);
+  modal.dataset.currentQoId = orderId;
+  if (createA) {
+    createA.href = `#/create?quickOrder=${encodeURIComponent(orderId)}`;
+  }
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function ensureDashboardQuickOrderModalWired() {
+  if (document.body.dataset.dashboardQoModalWired) return;
+  document.body.dataset.dashboardQoModalWired = "1";
+  document.getElementById("dashboard-qo-modal-close")?.addEventListener("click", closeDashboardQuickOrderModal);
+  document.getElementById("dashboard-qo-modal-backdrop")?.addEventListener("click", closeDashboardQuickOrderModal);
+  document.getElementById("dashboard-qo-modal-mark-done")?.addEventListener("click", async () => {
+    const modal = document.getElementById("dashboard-qo-modal");
+    const id = modal?.dataset?.currentQoId;
+    const { db, uid } = lastDashboardMount;
+    if (!id || !db || !uid) return;
+    try {
+      await markQuickOrderDone(db, id, uid);
+      showToast("Marked as done.");
+      closeDashboardQuickOrderModal();
+      await mountDashboard(db, uid);
+    } catch (ex) {
+      showToast(ex?.message || "Could not update.", { type: "error" });
+    }
+  });
+}
+
+/**
+ * @param {Array<{ id: string, customerName?: string, sendDate?: string, lines?: Array<{ productName?: string, quantity?: number }> }>} openOrders
+ */
+function buildQuickOrdersDashboardStrip(openOrders) {
+  if (!openOrders.length) return "";
+  const top = openOrders.slice(0, 6);
+  const items = top
+    .map((row) => {
+      const lines = Array.isArray(row.lines) ? row.lines : [];
+      const summary = lines
+        .filter((l) => (l.productName || "").trim())
+        .slice(0, 2)
+        .map((l) => `${escapeHtml((l.productName || "").trim())} × ${escapeHtml(String(l.quantity ?? ""))}`)
+        .join(" · ");
+      const more = lines.filter((l) => (l.productName || "").trim()).length > 2 ? "…" : "";
+      const cust = row.customerName || "Customer";
+      return `<li class="dashboard-qo-item-card" data-qo-id="${escapeHtml(row.id)}" tabindex="0" role="button" aria-label="View quick order: ${escapeHtml(cust)}">
+        <button type="button" class="dashboard-qo-dismiss" data-id="${escapeHtml(row.id)}" aria-label="Mark as done">✕</button>
+        <div class="dashboard-qo-item-inner">
+          <div class="dashboard-qo-item-main">
+            <span class="dashboard-qo-name">${escapeHtml(cust)}</span>
+            <span class="dashboard-qo-due">Due ${escapeHtml(formatQuickOrderDate(row.sendDate))}</span>
+          </div>
+          <p class="dashboard-qo-lines muted small">${summary || "—"}${more}</p>
+        </div>
+        <a class="btn btn-primary btn-small dashboard-qo-create-link" href="#/create?quickOrder=${encodeURIComponent(row.id)}">Create invoice</a>
+      </li>`;
+    })
+    .join("");
+  return `
+    <section class="dashboard-quick-orders card" aria-labelledby="dash-qo-heading">
+      <div class="dashboard-quick-orders-head">
+        <h2 id="dash-qo-heading" class="dashboard-quick-orders-title">Quick orders — bill when ready</h2>
+        <a href="#/quick-orders" class="btn btn-secondary btn-small">Manage all</a>
+      </div>
+      <ul class="dashboard-quick-orders-list">${items}</ul>
+    </section>`;
 }
 
 function renderChartsInRoot(root, a) {
@@ -312,7 +454,10 @@ function openDashboardDetail(key) {
   const bodyEl = document.getElementById("dashboard-detail-body");
   if (!modal || !titleEl || !bodyEl) return;
 
-  titleEl.textContent = detailTitles[key] || "Details";
+  const titleTextEl = document.getElementById("dashboard-detail-title-text");
+  const label = detailTitles[key] || "Details";
+  if (titleTextEl) titleTextEl.textContent = label;
+  else titleEl.textContent = label;
 
   if (modalChart) {
     try {
@@ -448,6 +593,8 @@ export async function mountDashboard(db, uid) {
   const root = document.getElementById("dashboard-root");
   if (!root) return;
 
+  lastDashboardMount = { db, uid };
+
   destroyCharts();
 
   let invoices;
@@ -461,7 +608,7 @@ export async function mountDashboard(db, uid) {
         : ex && ex.message
           ? String(ex.message)
           : "Could not load dashboard.";
-    root.innerHTML = `<div class="card dashboard-error"><p class="muted">${escapeHtml(msg)}</p><p class="small"><a href="#/history">Invoice history</a> · <a href="#/settings">Settings</a></p></div>`;
+    root.innerHTML = `<div class="card dashboard-error"><p class="muted">${escapeHtml(msg)}</p><p class="small"><a href="#/history">Invoice register</a> · <a href="#/settings">Business settings</a></p></div>`;
     console.error("[mountDashboard]", ex);
     return;
   }
@@ -479,14 +626,23 @@ export async function mountDashboard(db, uid) {
   const k = a.kpis;
   const empty = a.rawInvoiceCount === 0;
 
-  root.innerHTML = `
+  let quickStrip = "";
+  try {
+    const openQo = await listOpenQuickOrders(db, uid);
+    quickStrip = buildQuickOrdersDashboardStrip(openQo);
+  } catch (e) {
+    console.warn("[mountDashboard] quick orders", e);
+  }
+
+  root.innerHTML = `${quickStrip}
     <div class="dashboard-toolbar">
       <p class="muted dashboard-lead">GST billing overview — revenue, receivables, payment mix, and trends. Click any card or chart for the full breakdown.</p>
       <div class="btn-row wrap">
-        <a class="btn btn-primary" href="#/create">Create invoice</a>
+        <a class="btn btn-primary" href="#/create">New GST invoice</a>
+        <a class="btn btn-secondary" href="#/quick-orders">Quick order</a>
         <a class="btn btn-secondary" href="#/customers">Customers</a>
-        <a class="btn btn-secondary" href="#/history">Invoice history</a>
-        <a class="btn btn-secondary" href="#/settings">Seller settings</a>
+        <a class="btn btn-secondary" href="#/history">Invoice register</a>
+        <a class="btn btn-secondary" href="#/settings">Business settings</a>
       </div>
     </div>
 
@@ -502,7 +658,7 @@ export async function mountDashboard(db, uid) {
     <div id="dashboard-charts-slot" class="dashboard-charts ${empty ? "dashboard-charts--empty" : ""}">
       ${
         empty
-          ? `<div class="dashboard-empty card"><p><strong>No invoices yet.</strong> Create your first invoice to see revenue charts, payment mix, and trends.</p><a class="btn btn-primary" href="#/create">Create invoice</a></div>`
+          ? `<div class="dashboard-empty card"><p><strong>No invoices yet.</strong> Create your first GST invoice to see revenue charts, payment mix, and trends.</p><a class="btn btn-primary" href="#/create">New GST invoice</a></div>`
           : `
       <div class="dashboard-grid">
         <article class="dashboard-chart-card card" data-dashboard-detail="payment-count" tabindex="0" role="button">
@@ -551,6 +707,32 @@ export async function mountDashboard(db, uid) {
   }
 
   root.onclick = (e) => {
+    const dismiss = e.target.closest(".dashboard-qo-dismiss");
+    if (dismiss) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = dismiss.getAttribute("data-id");
+      const { db: d, uid: u } = lastDashboardMount;
+      if (!id || !d || !u) return;
+      (async () => {
+        try {
+          await markQuickOrderDone(d, id, u);
+          showToast("Marked as done.");
+          await mountDashboard(d, u);
+        } catch (ex) {
+          showToast(ex?.message || "Could not update.", { type: "error" });
+        }
+      })();
+      return;
+    }
+    if (e.target.closest(".dashboard-qo-create-link")) return;
+    const qoCard = e.target.closest(".dashboard-qo-item-card");
+    if (qoCard) {
+      const id = qoCard.getAttribute("data-qo-id");
+      const { db: d, uid: u } = lastDashboardMount;
+      if (id && d && u) openDashboardQuickOrderModal(d, u, id);
+      return;
+    }
     const card = e.target.closest("[data-dashboard-detail]");
     if (!card) return;
     const key = card.dataset.dashboardDetail;
@@ -559,6 +741,14 @@ export async function mountDashboard(db, uid) {
 
   root.onkeydown = (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
+    const qoCard = e.target.closest(".dashboard-qo-item-card");
+    if (qoCard) {
+      e.preventDefault();
+      const id = qoCard.getAttribute("data-qo-id");
+      const { db: d, uid: u } = lastDashboardMount;
+      if (id && d && u) openDashboardQuickOrderModal(d, u, id);
+      return;
+    }
     const card = e.target.closest("[data-dashboard-detail]");
     if (!card) return;
     e.preventDefault();
@@ -581,10 +771,15 @@ export async function mountDashboard(db, uid) {
     document.body.dataset.dashboardEscBound = "1";
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
+      const qoModal = document.getElementById("dashboard-qo-modal");
+      if (qoModal && !qoModal.classList.contains("hidden")) {
+        closeDashboardQuickOrderModal();
+        return;
+      }
       const modal = document.getElementById("dashboard-detail-modal");
       if (modal && !modal.classList.contains("hidden")) closeDashboardDetail();
     });
   }
 }
 
-export { closeDashboardDetail };
+export { closeDashboardDetail, closeDashboardQuickOrderModal };
