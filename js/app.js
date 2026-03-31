@@ -23,8 +23,14 @@ import {
   round2,
 } from "./invoices.js";
 import { recordCustomerPayment, listMoneyTransactionsForCustomer } from "./payments.js";
+import { paginateSlice, mountPaginationBar } from "./pagination.js";
 import { initInvoiceForm, isValidGstinOptional, isValidPanOptional } from "./invoice-form.js";
-import { renderInvoiceDocument, printInvoice } from "./invoice-pdf.js";
+import {
+  renderInvoiceDocument,
+  printInvoice,
+  prepareInvoiceStampImagesForPdf,
+  applyCachedStampPngToStampImages,
+} from "./invoice-pdf.js";
 import { shouldForceLoginView, canAccessInvoice } from "./auth-guard.js";
 import {
   listCustomers,
@@ -67,6 +73,25 @@ const views = {
 
 /** Full invoice rows for history filtering (cleared when leaving / reload). */
 let historyCache = null;
+let historyPageIndex = 0;
+const HISTORY_PAGE_SIZE = 25;
+
+let customersListPageIndex = 0;
+let customersListSearchKey = "";
+const CUSTOMERS_PAGE_SIZE = 25;
+
+let qoListPageIndex = 0;
+const QO_PAGE_SIZE = 15;
+/** Open quick orders for the Quick orders page (paginated client-side). */
+let quickOrdersOpenCache = [];
+
+let custInvModalRows = [];
+let custInvModalPageIndex = 0;
+const CUST_INV_MODAL_PAGE_SIZE = 12;
+
+let payTxModalList = [];
+let payTxModalPageIndex = 0;
+const PAY_TX_PAGE_SIZE = 12;
 let historyFiltersWired = false;
 let historyFilterDebounce = null;
 
@@ -95,6 +120,21 @@ function parseLocalYmd(s) {
   const p = s.split("-").map(Number);
   if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return null;
   return new Date(p[0], p[1] - 1, p[2]);
+}
+
+/** Human-readable payment method for ledger / recent transactions. */
+function paymentMethodLabel(code) {
+  const m = {
+    credit_sale: "Credit sale",
+    cash: "Cash",
+    upi: "UPI",
+    bank_transfer: "Bank transfer",
+    cheque: "Cheque",
+    card: "Card",
+    other: "Other",
+  };
+  const k = String(code ?? "").trim();
+  return m[k] || (k ? k.replace(/_/g, " ") : "");
 }
 
 function historyDateRange(criteria) {
@@ -400,33 +440,45 @@ function historyPaymentStatusBadge(status) {
   return { label: "Unknown", mod: "history-inv-status--unknown" };
 }
 
-function renderHistoryListRows(rows) {
+function renderHistoryPage() {
   const listEl = document.getElementById("history-list");
   const emptyEl = document.getElementById("history-empty");
   const countEl = document.getElementById("history-count");
+  const pagEl = document.getElementById("history-pagination");
+  if (!listEl || !emptyEl) return;
   listEl.innerHTML = "";
-  const total = historyCache?.length ?? 0;
-  if (!rows.length) {
+  const cacheTotal = historyCache?.length ?? 0;
+  if (!historyCache) return;
+  const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
+  const pag = paginateSlice(filtered, historyPageIndex, HISTORY_PAGE_SIZE);
+  historyPageIndex = pag.pageIndex;
+
+  if (!filtered.length) {
     emptyEl.hidden = false;
-    emptyEl.innerHTML = total
+    emptyEl.innerHTML = cacheTotal
       ? 'No invoices match your filters. Use <strong>Clear all</strong> above or adjust search and filters.'
       : 'No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.';
     if (countEl) {
       countEl.hidden = true;
       countEl.textContent = "";
     }
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
     return;
   }
   emptyEl.hidden = true;
   if (countEl) {
     countEl.hidden = false;
-    if (rows.length === total) {
-      countEl.textContent = `${total} invoice${total === 1 ? "" : "s"}`;
+    if (filtered.length === cacheTotal) {
+      countEl.textContent = `${cacheTotal} invoice${cacheTotal === 1 ? "" : "s"}`;
     } else {
-      countEl.textContent = `${rows.length} of ${total} invoice${total === 1 ? "" : "s"} match filters`;
+      countEl.textContent = `${filtered.length} of ${cacheTotal} invoice${cacheTotal === 1 ? "" : "s"} match filters`;
     }
   }
-  for (const row of rows) {
+
+  for (const row of pag.slice) {
     const li = document.createElement("li");
     const a = document.createElement("a");
     a.href = `#/invoice/${row.id}`;
@@ -439,12 +491,22 @@ function renderHistoryListRows(rows) {
     li.appendChild(a);
     listEl.appendChild(li);
   }
+
+  mountPaginationBar(pagEl, {
+    pageIndex: pag.pageIndex,
+    pageSize: HISTORY_PAGE_SIZE,
+    total: filtered.length,
+    onPageChange: (i) => {
+      historyPageIndex = i;
+      renderHistoryPage();
+    },
+  });
 }
 
 function applyHistoryFilters() {
   if (!historyCache) return;
-  const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
-  renderHistoryListRows(filtered);
+  historyPageIndex = 0;
+  renderHistoryPage();
 }
 
 let currentUser = null;
@@ -1560,6 +1622,8 @@ async function openCustomerEditModal(customerId) {
 
 function closeCustomerPaymentModal() {
   paymentCustomerId = null;
+  payTxModalList = [];
+  payTxModalPageIndex = 0;
   const modal = document.getElementById("customer-payment-modal");
   if (modal) {
     modal.classList.add("hidden");
@@ -1571,6 +1635,81 @@ function closeCustomerPaymentModal() {
   if (errEl) errEl.textContent = "";
   const ul = document.getElementById("pay-tx-list");
   if (ul) ul.innerHTML = "";
+  const payPag = document.getElementById("pay-tx-pagination");
+  if (payPag) {
+    payPag.innerHTML = "";
+    payPag.hidden = true;
+  }
+}
+
+function renderPayTxModalPage() {
+  const ul = document.getElementById("pay-tx-list");
+  const pagEl = document.getElementById("pay-tx-pagination");
+  if (!ul) return;
+  ul.innerHTML = "";
+  const txs = payTxModalList;
+  const typeShort = (t) => {
+    if (t === "INVOICE_TOTAL") return "Invoice total";
+    if (t === "PAYMENT_ON_INVOICE") return "Payment (on invoice)";
+    if (t === "PAYMENT_STANDALONE") return "Payment";
+    if (t === "INVOICE_ADJUSTMENT") return "Invoice adjustment";
+    return t || "Entry";
+  };
+  const txAmount = (tx) => {
+    if (tx.type === "INVOICE_ADJUSTMENT" && tx.receivableDelta != null) {
+      return round2(Number(tx.receivableDelta));
+    }
+    return round2(Number(tx.amount) || 0);
+  };
+  const txRowClass = (type) => {
+    if (type === "INVOICE_TOTAL") return "pay-tx--invoice";
+    if (type === "PAYMENT_ON_INVOICE" || type === "PAYMENT_STANDALONE") return "pay-tx--payment";
+    if (type === "INVOICE_ADJUSTMENT") return "pay-tx--adjustment";
+    return "pay-tx--other";
+  };
+  if (!txs.length) {
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "No transactions yet.";
+    ul.appendChild(li);
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
+    return;
+  }
+  const pag = paginateSlice(txs, payTxModalPageIndex, PAY_TX_PAGE_SIZE);
+  payTxModalPageIndex = pag.pageIndex;
+  for (const tx of pag.slice) {
+    const li = document.createElement("li");
+    li.className = txRowClass(tx.type);
+    const amt = txAmount(tx);
+    const dt = tx.createdAt ? formatInvoiceDate(tx.createdAt) : "—";
+    const invNo = tx.invoiceNumber ? ` ${tx.invoiceNumber}` : "";
+    let alloc = "";
+    if (tx.type === "PAYMENT_STANDALONE" && Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
+      const nums = tx.allocatedInvoices.map((a) => a.invoiceNumber || "").filter(Boolean);
+      if (nums.length) {
+        const shown = nums.slice(0, 4);
+        alloc = ` → ${shown.join(", ")}${nums.length > 4 ? "…" : ""}`;
+      }
+    }
+    const modePart =
+      (tx.type === "PAYMENT_ON_INVOICE" || tx.type === "PAYMENT_STANDALONE") && tx.paymentMethod
+        ? ` · ${paymentMethodLabel(tx.paymentMethod)}`
+        : "";
+    li.textContent = `${dt} · ${typeShort(tx.type)}${modePart}${invNo}${alloc} · ₹ ${amt.toFixed(2)}`;
+    ul.appendChild(li);
+  }
+  mountPaginationBar(pagEl, {
+    pageIndex: pag.pageIndex,
+    pageSize: PAY_TX_PAGE_SIZE,
+    total: txs.length,
+    onPageChange: (i) => {
+      payTxModalPageIndex = i;
+      renderPayTxModalPage();
+    },
+  });
 }
 
 async function openCustomerPaymentModal(customerId) {
@@ -1598,45 +1737,24 @@ async function openCustomerPaymentModal(customerId) {
   const form = document.getElementById("form-customer-payment");
   if (form) form.reset();
 
-  const ul = document.getElementById("pay-tx-list");
-  if (ul) {
-    ul.innerHTML = "";
-    try {
-      const txs = await listMoneyTransactionsForCustomer(db, currentUser.uid, customerId, 25);
-      const typeShort = (t) => {
-        if (t === "INVOICE_TOTAL") return "Invoice total";
-        if (t === "PAYMENT_ON_INVOICE") return "Payment (on invoice)";
-        if (t === "PAYMENT_STANDALONE") return "Payment";
-        if (t === "INVOICE_ADJUSTMENT") return "Invoice adjustment";
-        return t || "Entry";
-      };
-      const txAmount = (tx) => {
-        if (tx.type === "INVOICE_ADJUSTMENT" && tx.receivableDelta != null) {
-          return round2(Number(tx.receivableDelta));
-        }
-        return round2(Number(tx.amount) || 0);
-      };
-      for (const tx of txs) {
-        const li = document.createElement("li");
-        const amt = txAmount(tx);
-        const dt = tx.createdAt ? formatInvoiceDate(tx.createdAt) : "—";
-        const invNo = tx.invoiceNumber ? ` ${tx.invoiceNumber}` : "";
-        let alloc = "";
-        if (tx.type === "PAYMENT_STANDALONE" && Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
-          const nums = tx.allocatedInvoices.map((a) => a.invoiceNumber || "").filter(Boolean);
-          if (nums.length) {
-            const shown = nums.slice(0, 4);
-            alloc = ` → ${shown.join(", ")}${nums.length > 4 ? "…" : ""}`;
-          }
-        }
-        li.textContent = `${dt} · ${typeShort(tx.type)}${invNo}${alloc} · ₹ ${amt.toFixed(2)}`;
-        ul.appendChild(li);
-      }
-    } catch (_) {
+  payTxModalPageIndex = 0;
+  try {
+    payTxModalList = await listMoneyTransactionsForCustomer(db, currentUser.uid, customerId, 100);
+    renderPayTxModalPage();
+  } catch (_) {
+    payTxModalList = [];
+    const ul = document.getElementById("pay-tx-list");
+    if (ul) {
+      ul.innerHTML = "";
       const li = document.createElement("li");
       li.className = "muted";
       li.textContent = "Could not load transactions.";
       ul.appendChild(li);
+    }
+    const payPag = document.getElementById("pay-tx-pagination");
+    if (payPag) {
+      payPag.innerHTML = "";
+      payPag.hidden = true;
     }
   }
 
@@ -1844,6 +1962,17 @@ function setupCustomerEditModal() {
   });
 }
 
+function invoiceRowMillis(inv) {
+  const d = inv.date;
+  if (d && typeof d.toMillis === "function") return d.toMillis();
+  if (d instanceof Date) return d.getTime();
+  return 0;
+}
+
+function sortInvoicesByDateDesc(rows) {
+  return [...rows].sort((a, b) => invoiceRowMillis(b) - invoiceRowMillis(a));
+}
+
 function groupInvoicesByCustomerId(invoiceRows) {
   const map = new Map();
   for (const inv of invoiceRows) {
@@ -1863,13 +1992,12 @@ function closeCustomerInvoicesModal() {
   }
 }
 
-function openCustomerInvoicesModal(customerId, customerName) {
-  const rows = customerInvoicesByCustomerIdCache.get(customerId) || [];
-  const sub = document.getElementById("customer-invoices-modal-sub");
-  if (sub) sub.textContent = customerName ? `Customer: ${customerName}` : "";
+function renderCustomerInvoicesModalTable() {
   const tbody = document.getElementById("customer-invoices-modal-tbody");
+  const pagEl = document.getElementById("customer-invoices-pagination");
   if (!tbody) return;
   tbody.innerHTML = "";
+  const rows = custInvModalRows;
   if (!rows.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -1878,27 +2006,51 @@ function openCustomerInvoicesModal(customerId, customerName) {
     td.textContent = "No invoices saved for this customer yet.";
     tr.appendChild(td);
     tbody.appendChild(tr);
-  } else {
-    for (const inv of rows) {
-      const tr = document.createElement("tr");
-      const tdNum = document.createElement("td");
-      const a = document.createElement("a");
-      a.href = `#/invoice/${inv.id}`;
-      a.textContent = inv.invoiceNumber || "—";
-      a.className = "cust-inv-modal-link";
-      tdNum.appendChild(a);
-      const tdAmt = document.createElement("td");
-      tdAmt.className = "num";
-      const amt = Number(inv.total);
-      tdAmt.textContent = `₹ ${Number.isFinite(amt) ? amt.toFixed(2) : "0.00"}`;
-      const tdWhen = document.createElement("td");
-      tdWhen.textContent = formatInvoiceDateTime(inv.date);
-      tr.appendChild(tdNum);
-      tr.appendChild(tdAmt);
-      tr.appendChild(tdWhen);
-      tbody.appendChild(tr);
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
     }
+    return;
   }
+  const pag = paginateSlice(rows, custInvModalPageIndex, CUST_INV_MODAL_PAGE_SIZE);
+  custInvModalPageIndex = pag.pageIndex;
+  for (const inv of pag.slice) {
+    const tr = document.createElement("tr");
+    const tdNum = document.createElement("td");
+    const a = document.createElement("a");
+    a.href = `#/invoice/${inv.id}`;
+    a.textContent = inv.invoiceNumber || "—";
+    a.className = "cust-inv-modal-link";
+    tdNum.appendChild(a);
+    const tdAmt = document.createElement("td");
+    tdAmt.className = "num";
+    const amt = Number(inv.total);
+    tdAmt.textContent = `₹ ${Number.isFinite(amt) ? amt.toFixed(2) : "0.00"}`;
+    const tdWhen = document.createElement("td");
+    tdWhen.textContent = formatInvoiceDateTime(inv.date);
+    tr.appendChild(tdNum);
+    tr.appendChild(tdAmt);
+    tr.appendChild(tdWhen);
+    tbody.appendChild(tr);
+  }
+  mountPaginationBar(pagEl, {
+    pageIndex: pag.pageIndex,
+    pageSize: CUST_INV_MODAL_PAGE_SIZE,
+    total: rows.length,
+    onPageChange: (i) => {
+      custInvModalPageIndex = i;
+      renderCustomerInvoicesModalTable();
+    },
+  });
+}
+
+function openCustomerInvoicesModal(customerId, customerName) {
+  const raw = customerInvoicesByCustomerIdCache.get(customerId) || [];
+  custInvModalRows = sortInvoicesByDateDesc(raw);
+  custInvModalPageIndex = 0;
+  const sub = document.getElementById("customer-invoices-modal-sub");
+  if (sub) sub.textContent = customerName ? `Customer: ${customerName}` : "";
+  renderCustomerInvoicesModalTable();
   const modal = document.getElementById("customer-invoices-modal");
   if (modal) {
     modal.classList.remove("hidden");
@@ -1934,6 +2086,7 @@ function wireCustomersSearch() {
 function renderCustomersListFromCache() {
   const listEl = document.getElementById("customers-list");
   const emptyEl = document.getElementById("customers-empty");
+  const pagEl = document.getElementById("customers-pagination");
   if (!listEl || !emptyEl) return;
   listEl.innerHTML = "";
   const all = customersPageCache;
@@ -1941,20 +2094,34 @@ function renderCustomersListFromCache() {
     emptyEl.hidden = false;
     emptyEl.innerHTML =
       'No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.';
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
     return;
   }
   const q = document.getElementById("customers-search")?.value ?? "";
+  if (q !== customersListSearchKey) {
+    customersListSearchKey = q;
+    customersListPageIndex = 0;
+  }
   const rows = all.filter((row) => matchesSearchTokens(customerSearchBlob(row), q));
   if (!rows.length) {
     emptyEl.hidden = false;
     emptyEl.innerHTML =
       'No customers match your search. Clear the search box above to see all customers.';
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
     return;
   }
+  const pag = paginateSlice(rows, customersListPageIndex, CUSTOMERS_PAGE_SIZE);
+  customersListPageIndex = pag.pageIndex;
   emptyEl.hidden = true;
   emptyEl.innerHTML =
     'No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.';
-  for (const row of rows) {
+  for (const row of pag.slice) {
     const li = document.createElement("li");
     li.className = "customer-row";
     const phone = escapeHtml(row.phone || "");
@@ -1975,6 +2142,15 @@ function renderCustomersListFromCache() {
     </div>`;
     listEl.appendChild(li);
   }
+  mountPaginationBar(pagEl, {
+    pageIndex: pag.pageIndex,
+    pageSize: CUSTOMERS_PAGE_SIZE,
+    total: rows.length,
+    onPageChange: (i) => {
+      customersListPageIndex = i;
+      renderCustomersListFromCache();
+    },
+  });
   listEl.querySelectorAll(".btn-show-customer-invoices").forEach((btn) => {
     btn.addEventListener("click", () => {
       const cid = btn.getAttribute("data-id");
@@ -2168,25 +2344,47 @@ function setupQuickOrdersPage() {
 async function renderQuickOrdersPage() {
   const listEl = document.getElementById("qo-list");
   const emptyEl = document.getElementById("qo-empty");
+  const pagEl = document.getElementById("qo-pagination");
   if (!listEl || !currentUser) return;
 
-  let rows = [];
   try {
-    rows = await listOpenQuickOrders(db, currentUser.uid);
+    quickOrdersOpenCache = await listOpenQuickOrders(db, currentUser.uid);
   } catch (ex) {
+    quickOrdersOpenCache = [];
     listEl.innerHTML = `<li class="muted">Could not load quick orders.</li>`;
     if (emptyEl) emptyEl.hidden = true;
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
     return;
   }
+
+  qoListPageIndex = 0;
+  renderQuickOrdersListFromCache();
+}
+
+function renderQuickOrdersListFromCache() {
+  const listEl = document.getElementById("qo-list");
+  const emptyEl = document.getElementById("qo-empty");
+  const pagEl = document.getElementById("qo-pagination");
+  if (!listEl) return;
+  const rows = quickOrdersOpenCache;
 
   if (!rows.length) {
     listEl.innerHTML = "";
     if (emptyEl) emptyEl.hidden = false;
+    if (pagEl) {
+      pagEl.innerHTML = "";
+      pagEl.hidden = true;
+    }
     return;
   }
   if (emptyEl) emptyEl.hidden = true;
+  const pag = paginateSlice(rows, qoListPageIndex, QO_PAGE_SIZE);
+  qoListPageIndex = pag.pageIndex;
   listEl.innerHTML = "";
-  for (const row of rows) {
+  for (const row of pag.slice) {
     const li = document.createElement("li");
     li.className = "quick-order-card card";
     const lines = Array.isArray(row.lines) ? row.lines : [];
@@ -2214,11 +2412,21 @@ async function renderQuickOrdersPage() {
     listEl.appendChild(li);
   }
 
+  mountPaginationBar(pagEl, {
+    pageIndex: pag.pageIndex,
+    pageSize: QO_PAGE_SIZE,
+    total: rows.length,
+    onPageChange: (i) => {
+      qoListPageIndex = i;
+      renderQuickOrdersListFromCache();
+    },
+  });
+
   listEl.querySelectorAll(".btn-qo-edit").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-id");
       if (!id) return;
-      const row = rows.find((r) => r.id === id);
+      const row = quickOrdersOpenCache.find((r) => r.id === id);
       if (row) qoFillFormForEdit(row);
     });
   });
@@ -2255,6 +2463,8 @@ async function renderCustomersPage() {
   const emptyEl = document.getElementById("customers-empty");
   if (listEl) listEl.innerHTML = "";
   if (!currentUser) return;
+  customersListPageIndex = 0;
+  customersListSearchKey = "";
 
   let rows;
   let invoiceRows = [];
@@ -2534,6 +2744,7 @@ function uniquePdfFilenameInZip(baseName, used) {
 async function invoiceNodeToPdfBlob(node) {
   const h2p = window.html2pdf;
   if (!h2p) throw new Error("PDF library not loaded.");
+  await prepareInvoiceStampImagesForPdf(node);
   await new Promise((r) => requestAnimationFrame(r));
   await new Promise((r) => requestAnimationFrame(r));
   try {
@@ -2541,17 +2752,28 @@ async function invoiceNodeToPdfBlob(node) {
   } catch (_) {
     /* ignore */
   }
+  /** Higher scale = sharper text and borders (html2canvas raster). Capped for memory. */
+  const dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+  const pdfCanvasScale = Math.min(4, Math.max(2.5, dpr * 2));
   const opts = {
     margin: [8, 8, 10, 8],
     filename: "x.pdf",
-    image: { type: "jpeg", quality: 0.98 },
+    image: { type: "png", quality: 1 },
     html2canvas: {
-      scale: 2,
+      scale: pdfCanvasScale,
       useCORS: true,
+      allowTaint: false,
       logging: false,
       scrollY: 0,
       scrollX: 0,
       backgroundColor: "#ffffff",
+      onclone: (clonedDoc, clonedEl) => {
+        const root =
+          clonedEl ||
+          clonedDoc?.querySelector?.(".gst-invoice.invoice-doc") ||
+          clonedDoc?.body;
+        applyCachedStampPngToStampImages(root);
+      },
     },
     jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
     pagebreak: { mode: ["css", "legacy"] },
@@ -2745,16 +2967,28 @@ async function renderInvoicePage(id) {
     };
   }
 
-  let node;
+  const stampChk = document.getElementById("invoice-view-show-stamp");
+  if (stampChk) stampChk.checked = false;
+
+  let viewNode;
+  function mountInvoiceView(includeStamp) {
+    const newNode = renderInvoiceDocument(inv, { includeStamp });
+    root.replaceChildren(newNode);
+    viewNode = newNode;
+  }
+
   try {
-    node = renderInvoiceDocument(inv);
+    mountInvoiceView(false);
   } catch (ex) {
     invoiceBreadcrumbState = "error";
     root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not render invoice."))}</p>`;
     showToast(formatAppError(ex, "Could not render invoice."), { type: "error" });
     return;
   }
-  root.appendChild(node);
+
+  if (stampChk) {
+    stampChk.onchange = () => mountInvoiceView(stampChk.checked);
+  }
   invoiceBreadcrumbLabel = inv.invoiceNumber || id;
   invoiceBreadcrumbState = "ready";
   const invTitleEl = document.getElementById("invoice-view-page-title-text");
@@ -2776,7 +3010,7 @@ async function renderInvoicePage(id) {
       const safeName = String(inv.invoiceNumber || "invoice").replace(/[^a-zA-Z0-9-_]/g, "_");
       await withLoading(async () => {
         await new Promise((r) => requestAnimationFrame(r));
-        const blob = await invoiceNodeToPdfBlob(node);
+        const blob = await invoiceNodeToPdfBlob(viewNode);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

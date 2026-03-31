@@ -161,6 +161,25 @@ body.app-loading-active {
   height: 1.5rem;
 }
 
+.invoice-stamp-toggle-wrap {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.invoice-stamp-toggle {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.94rem;
+  line-height: 1.35;
+  cursor: pointer;
+  user-select: none;
+}
+
+.invoice-stamp-toggle input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
 /*
  * After each route change, JS focuses the page h1 (tabindex=-1) for screen readers.
  * That programmatic focus triggers the browser’s default focus ring — looks like a black box.
@@ -332,6 +351,65 @@ body.app-loading-active {
   margin-top: 1rem;
 }
 
+.pay-tx-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin: 0.5rem 0 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #2d3a35;
+}
+
+.pay-tx-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.12rem 0.45rem 0.12rem 0.35rem;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.pay-tx-legend-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.pay-tx-legend-chip--payment {
+  background: rgba(10, 77, 46, 0.2);
+  color: #0a3d24;
+  border: 1px solid rgba(10, 77, 46, 0.45);
+}
+
+.pay-tx-legend-chip--payment::before {
+  background: #0a4d2e;
+}
+
+.pay-tx-legend-chip--invoice {
+  background: rgba(15, 55, 90, 0.2);
+  color: #0c2438;
+  border: 1px solid rgba(15, 55, 90, 0.45);
+}
+
+.pay-tx-legend-chip--invoice::before {
+  background: #123d5c;
+}
+
+.pay-tx-legend-chip--adjustment {
+  background: rgba(120, 45, 12, 0.2);
+  color: #4a1c08;
+  border: 1px solid rgba(120, 45, 12, 0.45);
+}
+
+.pay-tx-legend-chip--adjustment::before {
+  background: #7c2d12;
+}
+
 .pay-tx-list {
   list-style: none;
   padding: 0;
@@ -340,8 +418,67 @@ body.app-loading-active {
 }
 
 .pay-tx-list li {
-  padding: 0.25rem 0;
+  padding: 0.4rem 0.45rem 0.4rem 0.55rem;
   border-bottom: 1px solid var(--border);
+  border-left: 4px solid transparent;
+  border-radius: 0 4px 4px 0;
+  color: #1a211e;
+}
+
+.pay-tx-list li.pay-tx--payment {
+  border-left-color: #0a4d2e;
+  background: rgba(10, 77, 46, 0.2);
+  color: #0a3d24;
+}
+
+.pay-tx-list li.pay-tx--invoice {
+  border-left-color: #123d5c;
+  background: rgba(15, 55, 90, 0.2);
+  color: #0c2438;
+}
+
+.pay-tx-list li.pay-tx--adjustment {
+  border-left-color: #7c2d12;
+  background: rgba(120, 45, 12, 0.2);
+  color: #4a1c08;
+}
+
+.pay-tx-list li.pay-tx--other {
+  border-left-color: #6b7a76;
+  background: rgba(107, 122, 118, 0.08);
+  color: #1a211e;
+}
+
+/* —— List pagination (history, customers, quick orders, modals) —— */
+.pagination-wrap {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.pagination-wrap--modal {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: none;
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+.pagination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.pagination-page {
+  padding: 0 0.15rem;
 }
 
 .app-loading-overlay {
@@ -3265,6 +3402,81 @@ body.login-screen-active #app-main {
   border-top: none;
 }
 
+/* Stamp left (vertically centred); “For …” top-right, “Authorised Signatory” bottom-right. */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp {
+  vertical-align: middle;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 102px;
+  height: 102px;
+  max-height: 102px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-wrap {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  align-self: center;
+  max-width: 46%;
+  min-width: 104px;
+  height: auto;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-height: 96px;
+  max-width: 150px;
+  aspect-ratio: 656 / 1024;
+  object-fit: contain;
+  object-position: center center;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  align-self: stretch;
+  height: 100%;
+  box-sizing: border-box;
+  text-align: right;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-for,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
+  margin-top: 0;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
+  height: 102px;
+  vertical-align: middle;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {
   text-align: center;
   border-top: 1px solid #000;
@@ -4470,6 +4682,74 @@ body.login-screen-active #app-main {
   border-left: 1px solid #000 !important;
   box-sizing: border-box !important;
   padding-left: 6px !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: 102px !important;
+  height: 102px !important;
+  max-height: 102px !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-wrap {
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  align-self: center !important;
+  max-width: 46% !important;
+  min-width: 104px !important;
+  height: auto !important;
+  max-height: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-img {
+  display: block !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: 96px !important;
+  max-width: 150px !important;
+  aspect-ratio: 656 / 1024 !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-text {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  align-items: flex-end !important;
+  align-self: stretch !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  text-align: right !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-for,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
+  margin: 0 !important;
+  line-height: 1.25 !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
+  margin-top: 0 !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
+  height: 102px !important;
+  vertical-align: middle !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {

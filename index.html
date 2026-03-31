@@ -403,6 +403,7 @@
       <h2 class="h2-small qo-list-heading">Open reminders</h2>
       <p class="muted small" id="qo-empty" hidden>No open quick orders. Saved items appear here and on the dashboard.</p>
       <ul class="quick-order-list" id="qo-list"></ul>
+      <nav class="pagination-wrap" id="qo-pagination" aria-label="Quick order pages" hidden></nav>
     </section>
 
     <div id="dashboard-detail-modal" class="dashboard-detail-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="dashboard-detail-title">
@@ -893,6 +894,7 @@
       </div>
       <p class="muted" id="customers-empty">No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.</p>
       <ul class="invoice-list" id="customers-list"></ul>
+      <nav class="pagination-wrap" id="customers-pagination" aria-label="Customer pages" hidden></nav>
     </section>
 
     <div id="customer-edit-modal" class="customer-edit-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="customer-edit-title">
@@ -1047,7 +1049,13 @@
         </form>
         <details class="pay-tx-details" id="pay-tx-details">
           <summary>Recent transactions</summary>
+          <p class="pay-tx-legend" aria-hidden="true">
+            <span class="pay-tx-legend-chip pay-tx-legend-chip--payment">Payment in</span>
+            <span class="pay-tx-legend-chip pay-tx-legend-chip--invoice">Invoice (receivable)</span>
+            <span class="pay-tx-legend-chip pay-tx-legend-chip--adjustment">Adjustment</span>
+          </p>
           <ul class="pay-tx-list" id="pay-tx-list"></ul>
+          <nav class="pagination-wrap" id="pay-tx-pagination" aria-label="Transaction pages" hidden></nav>
         </details>
       </div>
     </div>
@@ -1074,6 +1082,7 @@
             <tbody id="customer-invoices-modal-tbody"></tbody>
           </table>
         </div>
+        <nav class="pagination-wrap pagination-wrap--modal" id="customer-invoices-pagination" aria-label="Invoice pages" hidden></nav>
         <div class="btn-row wrap">
           <button type="button" class="btn btn-secondary" id="btn-customer-invoices-close">Close</button>
         </div>
@@ -1245,6 +1254,7 @@
       <p class="muted small" id="history-count" hidden></p>
       <p class="muted" id="history-empty">No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.</p>
       <ul class="invoice-list" id="history-list"></ul>
+      <nav class="pagination-wrap" id="history-pagination" aria-label="Invoice register pages" hidden></nav>
     </section>
 
     <!-- Invoice view / print -->
@@ -1269,6 +1279,12 @@
         <button type="button" class="btn btn-primary" id="btn-download-pdf">Download PDF</button>
         <button type="button" class="btn btn-secondary" id="btn-print">Print</button>
       </div>
+      <p class="invoice-stamp-toggle-wrap no-print">
+        <label class="invoice-stamp-toggle">
+          <input type="checkbox" id="invoice-view-show-stamp" />
+          <span>Show company stamp (signatory area)</span>
+        </label>
+      </p>
       <div id="invoice-print-root" class="invoice-print-outer"></div>
     </section>
   </main>

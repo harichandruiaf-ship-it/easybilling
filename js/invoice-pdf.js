@@ -1,6 +1,121 @@
 import { amountToWordsIn } from "./number-to-words-in.js";
 import { formatInvoiceDateDashed } from "./invoices.js";
 
+/**
+ * Public path fallback (e.g. tests). Prefer `resolveStampAssetUrl()` which uses `import.meta.url`
+ * so the file resolves next to this module (`js/` → `../assets/`) and works with file://, subpaths, and hash routing.
+ */
+export const INVOICE_STAMP_ASSET = "/assets/stamp.svg";
+
+function resolveStampAssetUrl() {
+  try {
+    return new URL("../assets/stamp.svg", import.meta.url).href;
+  } catch (_) {
+    if (typeof window === "undefined" || !window.location) return INVOICE_STAMP_ASSET;
+    try {
+      return new URL(INVOICE_STAMP_ASSET, window.location.origin).href;
+    } catch (_) {
+      return INVOICE_STAMP_ASSET;
+    }
+  }
+}
+
+/** Raster PNG — html2canvas often skips SVG in img (http or data URL); PNG paints reliably. */
+let stampPngDataUrlForPdfCache = null;
+
+function stampSvgViewBoxSize(svgText) {
+  const m = svgText.match(/viewBox\s*=\s*["']\s*([^"']+)["']/i);
+  if (m) {
+    const parts = m[1].trim().split(/[\s,]+/);
+    if (parts.length >= 4) {
+      const w = parseFloat(parts[2]);
+      const h = parseFloat(parts[3]);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return { w, h };
+    }
+  }
+  return { w: 656, h: 1024 };
+}
+
+/** CSS max-height for stamp; raster well above capture scale so the stamp stays sharp in PDF. */
+const STAMP_DISPLAY_MAX_PX = 96;
+const STAMP_RASTER_SCALE = 6;
+
+async function getStampPngDataUrlForPdf() {
+  if (stampPngDataUrlForPdfCache) return stampPngDataUrlForPdfCache;
+  const url = resolveStampAssetUrl();
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`Could not load stamp image (${res.status}).`);
+  const svgText = await res.text();
+  const { w: vw, h: vh } = stampSvgViewBoxSize(svgText);
+  const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("Stamp image failed to decode."));
+      img.src = blobUrl;
+    });
+    const nw = img.naturalWidth > 0 ? img.naturalWidth : vw;
+    const nh = img.naturalHeight > 0 ? img.naturalHeight : vh;
+    const maxH = STAMP_DISPLAY_MAX_PX * STAMP_RASTER_SCALE;
+    const scale = Math.min(1, maxH / nh);
+    const cw = Math.max(1, Math.round(nw * scale));
+    const ch = Math.max(1, Math.round(nh * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas is not available for PDF stamp.");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(img, 0, 0, nw, nh, 0, 0, cw, ch);
+    stampPngDataUrlForPdfCache = canvas.toDataURL("image/png", 1);
+    return stampPngDataUrlForPdfCache;
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+/**
+ * Apply cached PNG to stamp imgs (sync). Use in html2canvas onclone — the clone may not copy decoded images.
+ */
+export function applyCachedStampPngToStampImages(root) {
+  if (!stampPngDataUrlForPdfCache || !root) return;
+  root.querySelectorAll("img.inv-sign-stamp-img").forEach((img) => {
+    img.src = stampPngDataUrlForPdfCache;
+  });
+}
+
+/**
+ * Replace stamp img sources with a raster PNG and wait for decode.
+ * Call before html2pdf capture when the invoice includes a stamp.
+ */
+export async function prepareInvoiceStampImagesForPdf(root) {
+  const imgs = root?.querySelectorAll?.("img.inv-sign-stamp-img") ?? [];
+  if (!imgs.length) return;
+  const dataUrl = await getStampPngDataUrlForPdf();
+  imgs.forEach((img) => {
+    img.src = dataUrl;
+  });
+  await Promise.all(
+    [...imgs].map((img) => {
+      if (typeof img.decode === "function") return img.decode().catch(() => {});
+      return new Promise((resolve) => {
+        if (img.complete) resolve();
+        else {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        }
+      });
+    })
+  );
+  await new Promise((r) => requestAnimationFrame(r));
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -402,10 +517,27 @@ function buildBankBlock(inv) {
 </div>`;
 }
 
-function buildSignatureTable(inv) {
+function buildSignatureTable(inv, options = {}) {
   const subForSig = inv.sellerSubtitle ? ` ${escapeHtml(inv.sellerSubtitle)}` : "";
+  const includeStamp = options.includeStamp === true;
 
-  return `<table class="inv-subtable inv-sign-table" role="presentation">
+  const textBlock = `<div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</div>
+      <div class="inv-sign-auth">Authorised Signatory</div>`;
+
+  const companyCell = includeStamp
+    ? `<td class="inv-sign-company inv-sign-company--with-stamp">
+      <div class="inv-sign-company-row">
+        <div class="inv-sign-stamp-wrap" aria-hidden="true">
+          <img class="inv-sign-stamp-img" src="${escapeHtml(resolveStampAssetUrl())}" alt="" width="150" height="235" decoding="sync" loading="eager" />
+        </div>
+        <div class="inv-sign-company-text">${textBlock}</div>
+      </div>
+    </td>`
+    : `<td class="inv-sign-company">
+      ${textBlock}
+    </td>`;
+
+  return `<table class="inv-subtable inv-sign-table${includeStamp ? " inv-sign-table--with-stamp" : ""}" role="presentation">
   <colgroup>
     <col class="inv-sign-col-customer" style="width:40%" />
     <col class="inv-sign-col-company" style="width:60%" />
@@ -413,10 +545,7 @@ function buildSignatureTable(inv) {
 <tbody>
   <tr>
     <td class="inv-sign-customer">Customer's Seal and Signature</td>
-    <td class="inv-sign-company">
-      <div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</div>
-      <div class="inv-sign-auth">Authorised Signatory</div>
-    </td>
+    ${companyCell}
   </tr>
 </tbody>
 </table>`;
@@ -430,7 +559,7 @@ function buildFooterNoteOutside(inv) {
   </div>`;
 }
 
-function buildMainInvoiceTable(inv) {
+function buildMainInvoiceTable(inv, options = {}) {
   return `<table class="inv-root-table" role="presentation">
   <colgroup>
     <col style="width:45%" />
@@ -467,7 +596,7 @@ function buildMainInvoiceTable(inv) {
         </table>
       </td>
     </tr>
-    <tr><td colspan="2" class="inv-cell-signature">${buildSignatureTable(inv)}</td></tr>
+    <tr><td colspan="2" class="inv-cell-signature">${buildSignatureTable(inv, options)}</td></tr>
   </tbody>
 </table>`;
 }
@@ -476,14 +605,17 @@ function buildHeaderOutside() {
   return `<div class="inv-outside-header">TAX INVOICE</div>`;
 }
 
-export function buildInvoiceHtml(inv) {
-  return `${buildHeaderOutside()}${buildMainInvoiceTable(inv)}${buildFooterNoteOutside(inv)}`;
+export function buildInvoiceHtml(inv, options = {}) {
+  return `${buildHeaderOutside()}${buildMainInvoiceTable(inv, options)}${buildFooterNoteOutside(inv)}`;
 }
 
-export function renderInvoiceDocument(inv) {
+export function renderInvoiceDocument(inv, options = {}) {
   const root = document.createElement("div");
   root.className = "invoice-doc gst-invoice invoice-a4-compact invoice-a4-single";
-  root.innerHTML = buildInvoiceHtml(inv);
+  root.innerHTML = buildInvoiceHtml(inv, options);
+  root.querySelectorAll("img.inv-sign-stamp-img").forEach((img) => {
+    img.src = resolveStampAssetUrl();
+  });
   return root;
 }
 
