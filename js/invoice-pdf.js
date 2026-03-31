@@ -18,10 +18,10 @@ function formatMoney(n) {
 function safeAmountToWords(n) {
   try {
     const x = Number(n);
-    if (!Number.isFinite(x)) return "—";
+    if (!Number.isFinite(x)) return "";
     return amountToWordsIn(x);
   } catch (_) {
-    return "—";
+    return "";
   }
 }
 
@@ -49,15 +49,28 @@ function nz(s) {
   return String(s ?? "").trim();
 }
 
+/** Printed value when a field is empty (avoids em dash; keeps cell height). */
+const EMPTY_FIELD = "\u00A0";
+
+/** Receivable balance line: positive = Dr (due), negative = Cr (advance / credit). */
+function formatBalanceLine(label, amount) {
+  const a = Number(amount);
+  if (!Number.isFinite(a)) return "";
+  const abs = formatMoney(Math.abs(a));
+  if (Math.abs(a) < 1e-9) return `<div><strong>${escapeHtml(label)}: ₹ ${abs}</strong></div>`;
+  const dc = a > 0 ? "Dr" : "Cr";
+  return `<div><strong>${escapeHtml(label)}: ₹ ${abs} ${dc}</strong></div>`;
+}
+
 function kvRow(k, v) {
   if (!nz(v)) return "";
-  return `<tr><td class="inv-k">${escapeHtml(k)}</td><td class="inv-v">${escapeHtml(v)}</td></tr>`;
+  return `<tr><td class="inv-k">${escapeHtml(k)}</td><td class="inv-kc">:</td><td class="inv-v">${escapeHtml(v)}</td></tr>`;
 }
 
 function buildPartyTable(p) {
   const rows = [
-    `<tr><td colspan="2" class="inv-party-name"><strong>${escapeHtml(p.name || "—")}</strong></td></tr>`,
-    `<tr><td colspan="2" class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || "—"}</td></tr>`,
+    `<tr><td colspan="3" class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></td></tr>`,
+    `<tr><td colspan="3" class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</td></tr>`,
     kvRow("Phone No", p.phone),
     kvRow("Contact", p.contactExtra),
     kvRow("GSTIN/UIN", p.gstin),
@@ -72,7 +85,7 @@ function buildPartyTable(p) {
     .filter(Boolean)
     .join("");
 
-  return `<table class="inv-subtable inv-party-table" role="presentation"><tbody>${rows}</tbody></table>`;
+  return `<table class="inv-subtable inv-party-table" role="presentation"><colgroup><col class="inv-party-col-k" /><col class="inv-party-col-c" /><col class="inv-party-col-v" /></colgroup><tbody>${rows}</tbody></table>`;
 }
 
 function buildSellerTable(inv) {
@@ -122,11 +135,11 @@ function buildShipToTable(inv) {
 }
 
 function metaCell(label, value) {
-  return `<td><div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || "—")}</div></td>`;
+  return `<td><div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || EMPTY_FIELD)}</div></td>`;
 }
 
 function metaInner(label, value) {
-  return `<div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || "—")}</div>`;
+  return `<div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || EMPTY_FIELD)}</div>`;
 }
 
 function metaCellSpan(label, value, colspan) {
@@ -135,12 +148,12 @@ function metaCellSpan(label, value, colspan) {
 
 function buildSellerInfoGrid(inv) {
   const dateStr = formatInvoiceDateDashed(inv.date);
-  const refCombined = [nz(inv.referenceNo), nz(inv.referenceDate)].filter(Boolean).join(" dt ") || "—";
+  const refCombined = [nz(inv.referenceNo), nz(inv.referenceDate)].filter(Boolean).join(" dt ") || EMPTY_FIELD;
 
   return `<table class="inv-subtable inv-meta-grid inv-meta-grid-seller" role="presentation">
     <colgroup><col /><col /><col /><col /><col /><col /></colgroup>
     <tbody>
-      <tr>${metaCellSpan("Invoice No.", inv.invoiceNumber || "—", 2)}${metaCellSpan("e-Way Bill No.", inv.ewayBillNo, 2)}${metaCellSpan("Dated", dateStr || "—", 2)}</tr>
+      <tr>${metaCellSpan("Invoice No.", inv.invoiceNumber || EMPTY_FIELD, 2)}${metaCellSpan("e-Way Bill No.", inv.ewayBillNo, 2)}${metaCellSpan("Dated", dateStr || EMPTY_FIELD, 2)}</tr>
       <tr>${metaCellSpan("Delivery Note", inv.deliveryNote, 3)}${metaCellSpan("Mode / Terms of Payment", inv.paymentTerms, 3)}</tr>
       <tr>${metaCellSpan("Reference No. & Date", refCombined, 3)}${metaCellSpan("Other References", inv.otherReferences, 3)}</tr>
     </tbody>
@@ -150,7 +163,7 @@ function buildSellerInfoGrid(inv) {
 function buildConsigneeInfoGrid(inv) {
   const bolCombined = [nz(inv.billOfLadingNo), nz(inv.billOfLadingDate) ? `Dt ${nz(inv.billOfLadingDate)}` : ""]
     .filter(Boolean)
-    .join(" ") || "—";
+    .join(" ") || EMPTY_FIELD;
   const r1 = `<tr><td>${metaInner("Buyer's Order No.", inv.buyerOrderNo)}</td><td class="inv-mid-sep" rowspan="4"></td><td>${metaInner("Dated", inv.buyerOrderDate)}</td></tr>`;
   const r2 = `<tr><td>${metaInner("Dispatch Doc No.", inv.dispatchDocNo)}</td><td>${metaInner("Delivery Note Date", inv.deliveryNoteDate)}</td></tr>`;
   const r3 = `<tr><td>${metaInner("Dispatched through", inv.dispatchedThrough)}</td><td>${metaInner("Destination", inv.destination)}</td></tr>`;
@@ -159,8 +172,9 @@ function buildConsigneeInfoGrid(inv) {
 }
 
 function buildBuyerTermsOnlyGrid(inv) {
-  const terms = nz(inv.termsOfDelivery) || "—";
-  return `<table class="inv-subtable inv-meta-grid inv-meta-grid-1col" role="presentation"><tbody><tr><td><div class="inv-meta-label">Terms of Delivery</div><div class="inv-meta-value">${escapeHtml(terms).replace(/\n/g, "<br />")}</div></td></tr></tbody></table>`;
+  const terms = nz(inv.termsOfDelivery);
+  const termsHtml = terms ? escapeHtml(terms).replace(/\n/g, "<br />") : escapeHtml(EMPTY_FIELD);
+  return `<table class="inv-subtable inv-meta-grid inv-meta-grid-1col" role="presentation"><tbody><tr><td><div class="inv-meta-label">Terms of Delivery</div><div class="inv-meta-value">${termsHtml}</div></td></tr></tbody></table>`;
 }
 
 function buildItemsTable(inv) {
@@ -183,8 +197,16 @@ function buildItemsTable(inv) {
           return `<tbody>
 <tr>
   <td rowspan="3" class="c-num">${i + 1}</td>
-  <td rowspan="3" class="c-desc"><strong>${escapeHtml(it.name)}</strong><br /><span class="inv-tax-line">CGST @ ${rates.cgst}%</span><br /><span class="inv-tax-line">SGST @ ${rates.sgst}%</span></td>
-  <td rowspan="3" class="c-hsn">${escapeHtml(it.hsn || "—")}</td>
+  <td rowspan="3" class="c-desc">
+    <div class="inv-desc-cell-inner">
+      <div class="inv-desc-product"><strong>${escapeHtml(it.name)}</strong></div>
+      <div class="inv-desc-tax-labels">
+        <span class="inv-tax-line">CGST @ ${rates.cgst}%</span><br />
+        <span class="inv-tax-line">SGST @ ${rates.sgst}%</span>
+      </div>
+    </div>
+  </td>
+  <td rowspan="3" class="c-hsn">${escapeHtml(it.hsn || EMPTY_FIELD)}</td>
   <td rowspan="3" class="num">${escapeHtml(String(it.quantity))}</td>
   <td rowspan="3" class="num">${formatMoney(it.rate)}</td>
   <td rowspan="3" class="c-per">${escapeHtml(it.per || "Pcs")}</td>
@@ -195,11 +217,11 @@ function buildItemsTable(inv) {
 </tbody>`;
         })
         .join("")
-    : `<tbody><tr><td colspan="7" class="num">—</td></tr></tbody>`;
+    : `<tbody><tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr></tbody>`;
 
   const qtyLabel = `${totalQty} ${perUnit}`.trim();
   const wordsRaw = safeAmountToWords(inv.total);
-  const wordsDisplay = wordsRaw === "—" ? "—" : `INR ${wordsRaw.toUpperCase()}`;
+  const wordsDisplay = wordsRaw ? `INR ${wordsRaw.toUpperCase()}` : EMPTY_FIELD;
 
   const prev = inv.previousBalanceSnapshot ?? inv.previousBalance;
   const curr = inv.currentBalanceSnapshot ?? inv.currentBalance;
@@ -208,15 +230,16 @@ function buildItemsTable(inv) {
   const paidRaw = Number(inv.amountPaidOnInvoice);
   const paid = Number.isFinite(paidRaw) ? paidRaw : 0;
   const payStatus = String(inv.paymentStatus ?? "").trim();
-  const showPaymentReceived = payStatus === "partial" && paid > 0;
+  const showPaymentReceived = paid > 0 && payStatus !== "unpaid";
   const methodLabel = paymentMethodDisplay(inv.paymentMethod);
 
   const balances = [
-    hasPrev ? `<div><strong>Previous Balance: ₹ ${formatMoney(prev)} Dr</strong></div>` : "",
+    `<div class="inv-eoe">E.&O.E</div>`,
+    hasPrev ? formatBalanceLine("Previous Balance", prev) : "",
     showPaymentReceived
       ? `<div><strong>Payment received on this invoice:</strong> ₹ ${formatMoney(paid)}${methodLabel ? ` (${escapeHtml(methodLabel)})` : ""}</div>`
       : "",
-    hasCurr ? `<div><strong>Current Balance : ₹ ${formatMoney(curr)} Dr</strong></div>` : "",
+    hasCurr ? formatBalanceLine("Current Balance", curr) : "",
   ]
     .filter(Boolean)
     .join("");
@@ -259,7 +282,7 @@ function buildItemsTable(inv) {
             </colgroup>
             <tbody>
               <tr>
-                <td class="inv-words-cell inv-words-cell-70"><strong>Amount Chargeable (in words) : ${escapeHtml(wordsDisplay)}</strong></td>
+                <td class="inv-words-cell inv-words-cell-70"><div class="inv-chargeable-in-words"><strong>Amount chargeable (in words):</strong><br /><strong>${escapeHtml(wordsDisplay)}</strong></div></td>
                 <td class="inv-balance-cell inv-balance-cell-30">${balances || "&nbsp;"}</td>
               </tr>
             </tbody>
@@ -275,7 +298,7 @@ function hsnSummaryRows(inv) {
   const map = new Map();
   const rates = pct(inv);
   for (const it of items) {
-    const hsn = (it.hsn || "—").trim() || "—";
+    const hsn = nz(it.hsn) || EMPTY_FIELD;
     const taxable = Number(it.amount) || 0;
     if (!map.has(hsn)) map.set(hsn, { taxable: 0, hsn });
     const row = map.get(hsn);
@@ -336,7 +359,7 @@ function buildTaxSummaryTable(inv) {
     <th class="num">Amount</th>
   </tr>
 </thead>
-<tbody>${bodyRows || `<tr><td colspan="7" class="num">—</td></tr>`}</tbody>
+<tbody>${bodyRows || `<tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`}</tbody>
 <tfoot>
   <tr>
     <td><strong>Total:</strong></td>
@@ -353,10 +376,9 @@ function buildTaxSummaryTable(inv) {
 
 function buildDeclarationBlock(inv) {
   const wordsRaw = safeAmountToWords(inv.total);
-  const wordsDisplay = wordsRaw === "—" ? "—" : `INR ${wordsRaw.toUpperCase()}`;
-  const decl = nz(inv.invoiceTerms) || "—";
-  const panLine = inv.sellerPan ? `<p class="inv-pan-line"><strong>Company's PAN:</strong> ${escapeHtml(inv.sellerPan)}</p>` : "";
-  return `${panLine}<p class="inv-decl-words"><strong>Amount Chargeable (in words) : ${escapeHtml(wordsDisplay)}</strong></p><div class="inv-decl-title">Declaration</div><pre class="inv-decl-text">${escapeHtml(decl)}</pre>`;
+  const wordsDisplay = wordsRaw ? `INR ${wordsRaw.toUpperCase()}` : EMPTY_FIELD;
+  const decl = nz(inv.invoiceTerms) || EMPTY_FIELD;
+  return `<p class="inv-decl-words"><strong>Amount chargeable (in words):</strong><br /><strong>${escapeHtml(wordsDisplay)}</strong></p><div class="inv-decl-title">Declaration</div><pre class="inv-decl-text">${escapeHtml(decl)}</pre>`;
 }
 
 function buildBankBlock(inv) {
@@ -376,7 +398,7 @@ function buildBankBlock(inv) {
 
   return `<div class="inv-bank-wrap">
   <div class="inv-bank-title">COMPANY'S BANK DETAILS</div>
-  ${rows || `<div class="inv-bank-line">—</div>`}
+  ${rows || `<div class="inv-bank-line">${EMPTY_FIELD}</div>`}
 </div>`;
 }
 
@@ -451,7 +473,7 @@ function buildMainInvoiceTable(inv) {
 }
 
 function buildHeaderOutside() {
-  return `<div class="inv-outside-header">TAX INOVICE</div>`;
+  return `<div class="inv-outside-header">TAX INVOICE</div>`;
 }
 
 export function buildInvoiceHtml(inv) {

@@ -2108,6 +2108,35 @@ body.login-screen-active #app-main {
   vertical-align: top;
 }
 
+/* Description column: item name top-left; CGST/SGST labels bottom-right (aligned toward Amount column) */
+.gst-invoice .inv-items td.c-desc {
+  position: relative;
+}
+
+.gst-invoice .inv-items .inv-desc-cell-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 2px 4px;
+}
+
+.gst-invoice .inv-items .inv-desc-product {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.gst-invoice .inv-items .inv-desc-tax-labels {
+  align-self: flex-end;
+  text-align: right;
+  line-height: 1.15;
+}
+
 .gst-invoice .inv-desc-main {
   margin-bottom: 0.2em;
   font-weight: 700;
@@ -3009,25 +3038,43 @@ body.login-screen-active #app-main {
   font-weight: 600;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-k {
-  width: 34%;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-v {
-  font-weight: 600;
-}
-
-/* Seller block: evenly split full left-side width (50/50) */
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-company .inv-party-table {
+/* Party KV rows: label | : | value — narrow gap, aligned colons */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table {
   table-layout: fixed !important;
   width: 100% !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-company .inv-party-table td.inv-k,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-company .inv-party-table td.inv-v {
-  width: 50% !important;
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table col.inv-party-col-k {
+  width: 8.5em;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table col.inv-party-col-c {
+  width: 1.45em;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table col.inv-party-col-v {
+  width: auto;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table td.inv-k {
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: top;
+  padding-right: 0 !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table td.inv-kc {
+  font-weight: 700;
+  vertical-align: top;
+  padding-left: 0;
+  padding-right: 0.35em;
+  text-align: center;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-party-table td.inv-v {
+  font-weight: 600;
+  vertical-align: top;
+  text-align: left;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .block-label {
@@ -3083,6 +3130,12 @@ body.login-screen-active #app-main {
   white-space: normal !important;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-balance-cell .inv-eoe {
+  margin-bottom: 0.35rem;
+  font-weight: 700;
+  text-align: center; /* column is right-aligned; E.&O.E sits left above Previous Balance */
 }
 
 /* Amount words + balance row: 70:30 split with no vertical divider */
