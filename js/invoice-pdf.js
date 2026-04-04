@@ -172,9 +172,20 @@ function formatBalanceLine(label, amount) {
   const a = Number(amount);
   if (!Number.isFinite(a)) return "";
   const abs = formatMoney(Math.abs(a));
-  if (Math.abs(a) < 1e-9) return `<div><strong>${escapeHtml(label)}: ₹ ${abs}</strong></div>`;
+  if (Math.abs(a) < 1e-9) {
+    return `<div class="inv-bal-line"><span class="inv-bal-label">${escapeHtml(label)}:</span><span class="inv-bal-value-wrap"><strong class="inv-bal-val">₹ ${abs}</strong></span></div>`;
+  }
   const dc = a > 0 ? "Dr" : "Cr";
-  return `<div><strong>${escapeHtml(label)}: ₹ ${abs} ${dc}</strong></div>`;
+  return `<div class="inv-bal-line"><span class="inv-bal-label">${escapeHtml(label)}:</span><span class="inv-bal-value-wrap"><strong class="inv-bal-val">₹ ${abs} ${dc}</strong></span></div>`;
+}
+
+function partyPhoneContactRow(p) {
+  const phone = nz(p.phone);
+  const contact = nz(p.contactExtra);
+  if (!phone && !contact) return "";
+  if (phone && contact) return kvRow("Phone", `${phone}, ${contact}`);
+  if (phone) return kvRow("Phone No", phone);
+  return kvRow("Contact", contact);
 }
 
 function kvRow(k, v) {
@@ -186,8 +197,7 @@ function buildPartyTable(p) {
   const rows = [
     `<tr><td colspan="3" class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></td></tr>`,
     `<tr><td colspan="3" class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</td></tr>`,
-    kvRow("Phone No", p.phone),
-    kvRow("Contact", p.contactExtra),
+    partyPhoneContactRow(p),
     kvRow("GSTIN/UIN", p.gstin),
     kvRow("PAN / IT No", p.pan),
     kvRow(
@@ -294,44 +304,28 @@ function buildBuyerTermsOnlyGrid(inv) {
 
 function buildItemsTable(inv) {
   const items = inv.items || [];
-  const rates = pct(inv);
-  const cgstR = rates.cgst / 100;
-  const sgstR = rates.sgst / 100;
   let totalQty = 0;
   let perUnit = "Kgs";
 
   const bodies = items.length
-    ? items
+    ? `<tbody>${items
         .map((it, i) => {
-          const taxable = Number(it.amount) || 0;
-          const cgst = Math.round(taxable * cgstR * 100) / 100;
-          const sgst = Math.round(taxable * sgstR * 100) / 100;
           const qty = Number(it.quantity) || 0;
           totalQty += qty;
           if (nz(it.per)) perUnit = String(it.per).trim();
-          return `<tbody>
-<tr>
-  <td rowspan="3" class="c-num">${i + 1}</td>
-  <td rowspan="3" class="c-desc">
-    <div class="inv-desc-cell-inner">
-      <div class="inv-desc-product"><strong>${escapeHtml(it.name)}</strong></div>
-      <div class="inv-desc-tax-labels">
-        <span class="inv-tax-line">CGST @ ${rates.cgst}%</span><br />
-        <span class="inv-tax-line">SGST @ ${rates.sgst}%</span>
-      </div>
-    </div>
+          return `<tr>
+  <td class="c-num inv-cell-c">${i + 1}</td>
+  <td class="c-desc">
+    <div class="inv-desc-product"><strong>${escapeHtml(it.name)}</strong></div>
   </td>
-  <td rowspan="3" class="c-hsn">${escapeHtml(it.hsn || EMPTY_FIELD)}</td>
-  <td rowspan="3" class="num">${escapeHtml(String(it.quantity))}</td>
-  <td rowspan="3" class="num">${formatMoney(it.rate)}</td>
-  <td rowspan="3" class="c-per">${escapeHtml(it.per || "Pcs")}</td>
-  <td class="num">${formatMoney(it.amount)}</td>
-</tr>
-<tr><td class="num">${formatMoney(cgst)}</td></tr>
-<tr><td class="num">${formatMoney(sgst)}</td></tr>
-</tbody>`;
+  <td class="c-hsn inv-cell-c">${escapeHtml(it.hsn || EMPTY_FIELD)}</td>
+  <td class="num inv-cell-c"><strong>${escapeHtml(String(it.quantity))}</strong></td>
+  <td class="num inv-cell-c">${formatMoney(it.rate)}</td>
+  <td class="c-per inv-cell-c">${escapeHtml(it.per || "Kgs")}</td>
+  <td class="num"><strong>${formatMoney(it.amount)}</strong></td>
+</tr>`;
         })
-        .join("")
+        .join("")}</tbody>`
     : `<tbody><tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr></tbody>`;
 
   const qtyLabel = `${totalQty} ${perUnit}`.trim();
@@ -352,12 +346,47 @@ function buildItemsTable(inv) {
     `<div class="inv-eoe">E.&O.E</div>`,
     hasPrev ? formatBalanceLine("Previous Balance", prev) : "",
     showPaymentReceived
-      ? `<div><strong>Payment received on this invoice:</strong> ₹ ${formatMoney(paid)}${methodLabel ? ` (${escapeHtml(methodLabel)})` : ""}</div>`
+      ? `<div class="inv-bal-line inv-pay-received-line"><span class="inv-bal-label">Payment received on this invoice:</span><span class="inv-bal-value-wrap inv-bal-value-wrap--stack"><strong class="inv-bal-val">₹ ${formatMoney(paid)}</strong>${methodLabel ? `<span class="inv-pay-method">(${escapeHtml(methodLabel)})</span>` : ""}</span></div>`
       : "",
     hasCurr ? formatBalanceLine("Current Balance", curr) : "",
   ]
     .filter(Boolean)
     .join("");
+
+  const rates = pct(inv);
+  let taxableSum = 0;
+  for (const it of items) {
+    taxableSum += Number(it.amount) || 0;
+  }
+  taxableSum = Math.round((taxableSum + Number.EPSILON) * 100) / 100;
+  const cgstAll = Math.round(taxableSum * (rates.cgst / 100) * 100) / 100;
+  const sgstAll = Math.round(taxableSum * (rates.sgst / 100) * 100) / 100;
+  const spacerRow =
+    items.length > 0
+      ? `<tr class="inv-goods-spacer-row">${Array.from({ length: 7 }, () => `<td class="inv-goods-spacer-cell">${EMPTY_FIELD}</td>`).join("")}</tr>`
+      : "";
+
+  const goodsTaxRows =
+    items.length > 0
+      ? `<tr class="inv-goods-tax-agg">
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="c-desc inv-goods-tax-desc"><span class="inv-tax-line">CGST @ ${rates.cgst}%</span></td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="num"><strong>${formatMoney(cgstAll)}</strong></td>
+</tr>
+<tr class="inv-goods-tax-agg">
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="c-desc inv-goods-tax-desc"><span class="inv-tax-line">SGST @ ${rates.sgst}%</span></td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="num"><strong>${formatMoney(sgstAll)}</strong></td>
+</tr>`
+      : "";
 
   return `<table class="inv-subtable inv-print-table inv-items" role="presentation">
     <colgroup>
@@ -371,7 +400,7 @@ function buildItemsTable(inv) {
     </colgroup>
     <thead>
       <tr>
-        <th>Sl.No.</th>
+        <th class="inv-th-sl">Sl.N<br />o.</th>
         <th>Description of Goods</th>
         <th>HSN/SAC</th>
         <th class="num">Quantity</th>
@@ -382,10 +411,14 @@ function buildItemsTable(inv) {
     </thead>
     ${bodies}
     <tfoot>
-      <tr>
-        <td colspan="3" class="num"><strong>Total:</strong></td>
-        <td class="num"><strong>${escapeHtml(qtyLabel)}</strong></td>
-        <td colspan="2"></td>
+      ${spacerRow}
+      ${goodsTaxRows}
+      <tr class="inv-goods-total-row">
+        <td colspan="2" class="inv-total-label-cell"><span class="inv-ft-label inv-ft-total">Total:</span></td>
+        <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+        <td class="num inv-cell-c"><strong>${escapeHtml(qtyLabel)}</strong></td>
+        <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+        <td class="inv-goods-filler">${EMPTY_FIELD}</td>
         <td class="num"><strong>${formatMoney(inv.total)}</strong></td>
       </tr>
       <tr>
@@ -397,7 +430,7 @@ function buildItemsTable(inv) {
             </colgroup>
             <tbody>
               <tr>
-                <td class="inv-words-cell inv-words-cell-70"><div class="inv-chargeable-in-words"><strong>Amount chargeable (in words):</strong><br /><strong>${escapeHtml(wordsDisplay)}</strong></div></td>
+                <td class="inv-words-cell inv-words-cell-70"><div class="inv-chargeable-in-words"><span class="inv-words-label">Amount chargeable (in words):</span><br /><strong class="inv-words-amount">${escapeHtml(wordsDisplay)}</strong></div></td>
                 <td class="inv-balance-cell inv-balance-cell-30">${balances || "&nbsp;"}</td>
               </tr>
             </tbody>
@@ -439,24 +472,27 @@ function hsnSummaryRows(inv) {
 
 function buildTaxSummaryTable(inv) {
   const rows = hsnSummaryRows(inv);
-  const bodyRows = rows
-    .map(
-      (r) => `<tr>
-<td>${escapeHtml(r.hsn)}</td>
-<td class="num">${formatMoney(r.taxable)}</td>
-<td class="num">${r.cgstRate}%</td>
-<td class="num">${formatMoney(r.cgstAmt)}</td>
-<td class="num">${r.sgstRate}%</td>
-<td class="num">${formatMoney(r.sgstAmt)}</td>
-<td class="num">${formatMoney(r.taxTot)}</td>
-</tr>`
-    )
-    .join("");
-
   const sumTaxable = rows.reduce((a, r) => a + r.taxable, 0);
   const sumCgst = rows.reduce((a, r) => a + r.cgstAmt, 0);
   const sumSgst = rows.reduce((a, r) => a + r.sgstAmt, 0);
   const sumTax = rows.reduce((a, r) => a + r.taxTot, 0);
+
+  const bodyRows =
+    rows.length === 0
+      ? `<tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`
+      : rows
+          .map(
+            (r) => `<tr class="inv-tax-hsn-row">
+<td class="inv-tax-hsn-cell">${escapeHtml(r.hsn)}</td>
+<td class="num"><strong>${formatMoney(r.taxable)}</strong></td>
+<td class="num"><strong>${r.cgstRate}%</strong></td>
+<td class="num"><strong>${formatMoney(r.cgstAmt)}</strong></td>
+<td class="num"><strong>${r.sgstRate}%</strong></td>
+<td class="num"><strong>${formatMoney(r.sgstAmt)}</strong></td>
+<td class="num"><strong>${formatMoney(r.taxTot)}</strong></td>
+</tr>`
+          )
+          .join("");
 
   return `<table class="inv-subtable inv-print-table inv-tax-summary" role="presentation">
 <thead>
@@ -474,10 +510,10 @@ function buildTaxSummaryTable(inv) {
     <th class="num">Amount</th>
   </tr>
 </thead>
-<tbody>${bodyRows || `<tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`}</tbody>
+<tbody>${bodyRows}</tbody>
 <tfoot>
-  <tr>
-    <td><strong>Total:</strong></td>
+  <tr class="inv-tax-total-row">
+    <td class="inv-tax-total-cell"><strong class="inv-tax-total-label">Total</strong></td>
     <td class="num"><strong>${formatMoney(sumTaxable)}</strong></td>
     <td></td>
     <td class="num"><strong>${formatMoney(sumCgst)}</strong></td>
@@ -493,7 +529,7 @@ function buildDeclarationBlock(inv) {
   const wordsRaw = safeAmountToWords(inv.total);
   const wordsDisplay = wordsRaw ? `INR ${wordsRaw.toUpperCase()}` : EMPTY_FIELD;
   const decl = nz(inv.invoiceTerms) || EMPTY_FIELD;
-  return `<p class="inv-decl-words"><strong>Amount chargeable (in words):</strong><br /><strong>${escapeHtml(wordsDisplay)}</strong></p><div class="inv-decl-title">Declaration</div><pre class="inv-decl-text">${escapeHtml(decl)}</pre>`;
+  return `<p class="inv-decl-words"><span class="inv-words-label">Amount chargeable (in words):</span><br /><strong class="inv-words-amount">${escapeHtml(wordsDisplay)}</strong></p><div class="inv-decl-title">Declaration</div><pre class="inv-decl-text">${escapeHtml(decl)}</pre>`;
 }
 
 function buildBankBlock(inv) {
@@ -571,11 +607,11 @@ function buildMainInvoiceTable(inv, options = {}) {
       <td class="inv-cell-invoiceinfo">${buildSellerInfoGrid(inv)}</td>
     </tr>
     <tr>
-      <td class="inv-cell-consignee"><div class="block-label">Consignee (Ship to)</div>${buildShipToTable(inv)}</td>
+      <td class="inv-cell-consignee"><div class="block-label">Consignee (ship to)</div>${buildShipToTable(inv)}</td>
       <td class="inv-cell-consignee-info">${buildConsigneeInfoGrid(inv)}</td>
     </tr>
     <tr>
-      <td class="inv-cell-buyer"><div class="block-label">Buyer (Bill to)</div>${buildBillToTable(inv)}</td>
+      <td class="inv-cell-buyer"><div class="block-label">Buyer (bill to)</div>${buildBillToTable(inv)}</td>
       <td class="inv-cell-buyer-info">${buildBuyerTermsOnlyGrid(inv)}</td>
     </tr>
     <tr><td colspan="2" class="inv-cell-items">${buildItemsTable(inv)}</td></tr>

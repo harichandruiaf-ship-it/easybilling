@@ -27,7 +27,7 @@ function createRow(tbody, data = {}) {
     <td><input type="text" class="inv-item-name" maxlength="200" placeholder="Item" value="${escapeAttr(data.name || "")}" /></td>
     <td><input type="text" class="inv-hsn" maxlength="20" placeholder="HSN" value="${escapeAttr(data.hsn || "")}" /></td>
     <td><input type="number" class="inv-qty" min="0" step="any" value="${data.quantity ?? 1}" /></td>
-    <td><input type="text" class="inv-per" maxlength="12" placeholder="Pcs" value="${escapeAttr(data.per || "Pcs")}" /></td>
+    <td><input type="text" class="inv-per" maxlength="12" placeholder="Kgs" value="${escapeAttr(data.per || "Kgs")}" /></td>
     <td><input type="number" class="inv-rate" min="0" step="any" value="${data.rate ?? 0}" /></td>
     <td class="cell-amt inv-line-amt">${lineAmount(Number(data.quantity) || 0, Number(data.rate) || 0).toFixed(2)}</td>
     <td><button type="button" class="btn-icon inv-remove" aria-label="Remove row">✕</button></td>
@@ -351,7 +351,7 @@ export function initInvoiceForm(opts) {
   });
 
   btnAdd.addEventListener("click", () => {
-    createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+    createRow(tbody, { quantity: 1, rate: 0, per: "Kgs" });
     recalcTotals();
   });
 
@@ -363,7 +363,7 @@ export function initInvoiceForm(opts) {
 
   function resetForm() {
     tbody.innerHTML = "";
-    createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+    createRow(tbody, { quantity: 1, rate: 0, per: "Kgs" });
     if (customerIdHidden) customerIdHidden.value = "";
     if (customerSearchInput) customerSearchInput.value = "";
     closeCustomerListbox();
@@ -492,7 +492,7 @@ export function initInvoiceForm(opts) {
     for (const tr of rows) {
       const name = tr.querySelector(".inv-item-name")?.value.trim() || "";
       const hsn = tr.querySelector(".inv-hsn")?.value.trim() || "";
-      const per = tr.querySelector(".inv-per")?.value.trim() || "Pcs";
+      const per = tr.querySelector(".inv-per")?.value.trim() || "Kgs";
       const qty = parseFloat(tr.querySelector(".inv-qty")?.value);
       const rate = parseFloat(tr.querySelector(".inv-rate")?.value);
       const qn = Number.isFinite(qty) ? qty : 0;
@@ -602,11 +602,11 @@ export function initInvoiceForm(opts) {
           hsn: it.hsn,
           quantity: it.quantity,
           rate: it.rate,
-          per: it.per || "Pcs",
+          per: it.per || "Kgs",
         });
       }
     } else {
-      createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+      createRow(tbody, { quantity: 1, rate: 0, per: "Kgs" });
     }
 
     setTaxRates(inv.cgstPercent, inv.sgstPercent);
@@ -688,7 +688,7 @@ export function initInvoiceForm(opts) {
     setTaxRates,
     populateFromInvoice,
     ensureOneRow() {
-      if (!tbody.querySelector("tr")) createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+      if (!tbody.querySelector("tr")) createRow(tbody, { quantity: 1, rate: 0, per: "Kgs" });
       recalcTotals();
     },
     async selectCustomerById(customerId) {
@@ -735,18 +735,18 @@ export function initInvoiceForm(opts) {
       const lines =
         rawLines.length > 0
           ? rawLines
-          : [{ productName: "", quantity: 1, unit: "Pcs" }];
+          : [{ productName: "", quantity: 1, unit: "Kgs" }];
       tbody.innerHTML = "";
       lines.forEach((line) => {
         createRow(tbody, {
           name: (line.productName || "").trim(),
           quantity: Number(line.quantity) > 0 ? Number(line.quantity) : 1,
           rate: 0,
-          per: (line.unit || "Pcs").trim() || "Pcs",
+          per: (line.unit || "Kgs").trim() || "Kgs",
         });
       });
       if (!tbody.querySelector("tr")) {
-        createRow(tbody, { quantity: 1, rate: 0, per: "Pcs" });
+        createRow(tbody, { quantity: 1, rate: 0, per: "Kgs" });
       }
       recalcTotals();
     },
