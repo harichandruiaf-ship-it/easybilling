@@ -1285,6 +1285,14 @@
           <span>Show company stamp (signatory area)</span>
         </label>
       </p>
+      <p class="invoice-type-row no-print">
+        <label for="invoice-view-type-select" class="invoice-type-label">Invoice copy</label>
+        <select id="invoice-view-type-select" class="invoice-type-select" aria-label="Invoice copy type">
+          <option value="">Standard (no label)</option>
+          <option value="original">Original for Recipient</option>
+          <option value="duplicate">Duplicate for Transporter</option>
+        </select>
+      </p>
       <div id="invoice-print-root" class="invoice-print-outer"></div>
     </section>
   </main>

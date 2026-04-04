@@ -2724,8 +2724,8 @@ function focusVisiblePageHeading() {
 /** Max invoices per bulk ZIP (browser / time limits). */
 const BULK_HISTORY_PDF_MAX = 100;
 
-/** Host width for bulk ZIP PDFs — matches `.gst-invoice.invoice-a4-compact.invoice-a4-single`. */
-const INVOICE_PDF_CAPTURE_WIDTH_PX = 680;
+/** Host width for bulk ZIP PDFs — matches `.invoice-print-outer { max-width: 210mm }` (~794px @ 96dpi). */
+const INVOICE_PDF_CAPTURE_WIDTH_PX = Math.round((210 * 96) / 25.4);
 
 let historyBulkDownloadBusy = false;
 
@@ -2752,40 +2752,53 @@ async function invoiceNodeToPdfBlob(node) {
   } catch (_) {
     /* ignore */
   }
-  /** Higher scale = sharper text and borders (html2canvas raster). Capped for memory. */
-  const dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-  const pdfCanvasScale = Math.min(4, Math.max(2.5, dpr * 2));
-  const opts = {
-    margin: [8, 8, 10, 8],
-    filename: "x.pdf",
-    image: { type: "png", quality: 1 },
-    html2canvas: {
-      scale: pdfCanvasScale,
-      useCORS: true,
-      allowTaint: false,
-      logging: false,
-      scrollY: 0,
-      scrollX: 0,
-      backgroundColor: "#ffffff",
-      onclone: (clonedDoc, clonedEl) => {
-        const root =
-          clonedEl ||
-          clonedDoc?.querySelector?.(".gst-invoice.invoice-doc") ||
-          clonedDoc?.body;
-        applyCachedStampPngToStampImages(root);
+  /**
+   * html2canvas ignores @media print — PDF looked like screen, not like Print preview.
+   * `html.invoice-pdf-emulate-print` mirrors print CSS (see app.css); toggle only during capture.
+   */
+  const rootEl = document.documentElement;
+  rootEl.classList.add("invoice-pdf-emulate-print");
+  await new Promise((r) => requestAnimationFrame(r));
+  await new Promise((r) => requestAnimationFrame(r));
+  try {
+    /** Higher scale = sharper text and borders (html2canvas raster). Capped for memory. */
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    const pdfCanvasScale = Math.min(4, Math.max(2.5, dpr * 2));
+    const opts = {
+      /* [top, left, bottom, right] mm — match @page { margin: 0 } used in print */
+      margin: [0, 0, 0, 0],
+      filename: "x.pdf",
+      image: { type: "png", quality: 1 },
+      html2canvas: {
+        scale: pdfCanvasScale,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        scrollY: 0,
+        scrollX: 0,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc, clonedEl) => {
+          const root =
+            clonedEl ||
+            clonedDoc?.querySelector?.(".gst-invoice.invoice-doc") ||
+            clonedDoc?.body;
+          applyCachedStampPngToStampImages(root);
+        },
       },
-    },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    pagebreak: { mode: ["css", "legacy"] },
-  };
-  const chain = h2p().set(opts).from(node);
-  if (typeof chain.outputPdf === "function") {
-    return await chain.outputPdf("blob");
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css"] },
+    };
+    const chain = h2p().set(opts).from(node);
+    if (typeof chain.outputPdf === "function") {
+      return await chain.outputPdf("blob");
+    }
+    if (typeof chain.output === "function") {
+      return await chain.output("blob");
+    }
+    throw new Error("PDF export is not supported in this browser.");
+  } finally {
+    rootEl.classList.remove("invoice-pdf-emulate-print");
   }
-  if (typeof chain.output === "function") {
-    return await chain.output("blob");
-  }
-  throw new Error("PDF export is not supported in this browser.");
 }
 
 async function downloadHistoryFilteredZip() {
@@ -2845,10 +2858,13 @@ async function downloadHistoryFilteredZip() {
 
       const node = renderInvoiceDocument(inv);
       host.innerHTML = "";
-      host.appendChild(node);
+      const wrap = document.createElement("div");
+      wrap.className = "invoice-print-outer";
+      wrap.appendChild(node);
+      host.appendChild(wrap);
       await new Promise((r) => requestAnimationFrame(r));
 
-      const blob = await invoiceNodeToPdfBlob(node);
+      const blob = await invoiceNodeToPdfBlob(wrap);
       const fname = uniquePdfFilenameInZip(inv.invoiceNumber || inv.id || row.id, usedNames);
       zip.file(fname, blob);
       added += 1;
@@ -2969,16 +2985,29 @@ async function renderInvoicePage(id) {
 
   const stampChk = document.getElementById("invoice-view-show-stamp");
   if (stampChk) stampChk.checked = false;
+  const typeSel = document.getElementById("invoice-view-type-select");
+  if (typeSel) typeSel.value = "";
+
+  function getInvoiceTypeLabel() {
+    const sel = document.getElementById("invoice-view-type-select");
+    if (!sel) return "";
+    const v = sel.value;
+    if (v === "original") return "Original for Recipient";
+    if (v === "duplicate") return "Duplicate for Transporter";
+    return "";
+  }
 
   let viewNode;
-  function mountInvoiceView(includeStamp) {
-    const newNode = renderInvoiceDocument(inv, { includeStamp });
+  function mountInvoiceView() {
+    const includeStamp = stampChk ? stampChk.checked : false;
+    const invoiceTypeLabel = getInvoiceTypeLabel();
+    const newNode = renderInvoiceDocument(inv, { includeStamp, invoiceTypeLabel });
     root.replaceChildren(newNode);
     viewNode = newNode;
   }
 
   try {
-    mountInvoiceView(false);
+    mountInvoiceView();
   } catch (ex) {
     invoiceBreadcrumbState = "error";
     root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not render invoice."))}</p>`;
@@ -2987,7 +3016,10 @@ async function renderInvoicePage(id) {
   }
 
   if (stampChk) {
-    stampChk.onchange = () => mountInvoiceView(stampChk.checked);
+    stampChk.onchange = () => mountInvoiceView();
+  }
+  if (typeSel) {
+    typeSel.onchange = () => mountInvoiceView();
   }
   invoiceBreadcrumbLabel = inv.invoiceNumber || id;
   invoiceBreadcrumbState = "ready";
@@ -3010,7 +3042,8 @@ async function renderInvoicePage(id) {
       const safeName = String(inv.invoiceNumber || "invoice").replace(/[^a-zA-Z0-9-_]/g, "_");
       await withLoading(async () => {
         await new Promise((r) => requestAnimationFrame(r));
-        const blob = await invoiceNodeToPdfBlob(viewNode);
+        const pdfCaptureEl = document.getElementById("invoice-print-root") || viewNode;
+        const blob = await invoiceNodeToPdfBlob(pdfCaptureEl);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

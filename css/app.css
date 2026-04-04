@@ -180,6 +180,30 @@ body.app-loading-active {
   flex-shrink: 0;
 }
 
+.invoice-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.94rem;
+}
+
+.invoice-type-label {
+  font-weight: 500;
+}
+
+.invoice-type-select {
+  min-width: 14rem;
+  max-width: 100%;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
 /*
  * After each route change, JS focuses the page h1 (tabindex=-1) for screen readers.
  * That programmatic focus triggers the browser’s default focus ring — looks like a black box.
@@ -1883,17 +1907,25 @@ body.login-screen-active #app-main {
 #view-invoice {
   height: auto;
   min-height: 0;
+  /* Allow horizontal scroll on very narrow viewports; avoid clipping a full A4-width block */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Default .container (720px) is too narrow for 680px invoice + outer padding */
+/* A4 content is 210mm (~794px); 768px was clipping Amount column, bank block, tax table */
 #view-invoice.container {
-  max-width: min(100%, 768px);
+  max-width: min(100%, 920px);
 }
 
 #invoice-print-root.invoice-print-outer {
   height: auto;
   min-height: 0;
   max-height: none;
+  /* A4 shell is already 297mm tall; vertical padding here stacked past one page (extra PDF/print page) */
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
 }
 
 .invoice-print-outer {
@@ -3093,6 +3125,131 @@ body.login-screen-active #app-main {
   text-align: right;
 }
 
+/* ===== A4 page shell: 210×297mm; 20mm top/bottom bands; 10mm L/R; middle band 257mm fills with goods table ===== */
+.inv-a4-page {
+  box-sizing: border-box;
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 0 10mm;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.inv-a4-top-band {
+  flex: 0 0 20mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.inv-a4-top-band .inv-outside-header-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.inv-outside-header-type {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.2;
+  color: #111;
+}
+
+/* Fixed band between title/footer: 297 − 40 = 257mm; flex-grow middle gives spare height to line items */
+.inv-a4-sheet {
+  flex: 1 1 257mm;
+  width: 100%;
+  min-height: 257mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.inv-a4-sheet-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.inv-a4-sheet-grow {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--head,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--tail {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--items {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-row-items {
+  height: 100%;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-row-items td.inv-cell-items {
+  height: 100%;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-items-stretch {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-items-stretch > .inv-items {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* One horizontal rule between segments (avoid double border) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--items > tbody > tr:first-child > td {
+  border-top: none !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--tail > tbody > tr:first-child > td {
+  border-top: none !important;
+}
+
+.inv-a4-bottom-band.inv-outside-footer {
+  flex: 0 0 20mm;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1mm;
+  box-sizing: border-box;
+  margin: 0 !important;
+}
+
 /* ===== Strict one-parent-table invoice layout ===== */
 .gst-invoice.invoice-a4-compact.invoice-a4-single {
   width: 680px;
@@ -3104,11 +3261,22 @@ body.login-screen-active #app-main {
   line-height: 1.2;
 }
 
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout {
+  width: 100%;
+  min-width: 0;
+  max-width: 210mm;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   margin: 0;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-root-table {
+  width: 100% !important;
+  max-width: 100%;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table > tbody > tr > td {
@@ -3380,6 +3548,28 @@ body.login-screen-active #app-main {
   vertical-align: top;
 }
 
+/* A4 layout: extra room and clarity for the goods table (middle band uses min-height 257mm) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-items .inv-items > thead > tr > th {
+  padding: 6px 5px 7px !important;
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-items .inv-items > tbody > tr > td {
+  padding: 6px 5px !important;
+  vertical-align: top;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-items .inv-items tbody td.c-desc,
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-items .inv-items tbody td.c-desc .inv-desc-main {
+  line-height: 1.38;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-items tfoot tr.inv-goods-spacer-row td.inv-goods-spacer-cell {
+  min-height: 96px;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tax-line {
   font-size: 10px;
   font-weight: 700;
@@ -3578,69 +3768,52 @@ body.login-screen-active #app-main {
   border-top: none;
 }
 
-/* Stamp left (vertically centred); “For …” top-right, “Authorised Signatory” bottom-right. */
+/* Stamp between “For …” and “Authorised Signatory”, right-aligned (reference layout). */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp {
-  vertical-align: middle;
-  padding-top: 0;
-  padding-bottom: 0;
+  vertical-align: top;
+  padding-top: 4px;
+  padding-bottom: 6px;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-row {
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-stack {
   display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
   width: 100%;
-  min-height: 102px;
-  height: 102px;
-  max-height: 102px;
+  min-height: 32mm;
   box-sizing: border-box;
-  overflow: visible;
+  padding-right: 5mm;
+  text-align: right;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-wrap {
-  flex: 0 0 auto;
-  flex-shrink: 0;
-  align-self: center;
-  max-width: 46%;
-  min-width: 104px;
-  height: auto;
-  max-height: 100%;
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-stack .inv-sign-stamp-wrap {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 16mm;
+  padding: 2mm 0;
+  box-sizing: border-box;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-img {
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-stamp-img {
   display: block;
   width: auto;
   height: auto;
-  max-height: 96px;
+  max-height: 20mm;
   max-width: 150px;
   aspect-ratio: 656 / 1024;
   object-fit: contain;
-  object-position: center center;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-end;
-  align-self: stretch;
-  height: 100%;
-  box-sizing: border-box;
-  text-align: right;
+  object-position: center right;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-for,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
   margin: 0;
-  line-height: 1.25;
+  line-height: 1.3;
+  flex: 0 0 auto;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
@@ -3649,8 +3822,9 @@ body.login-screen-active #app-main {
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
-  height: 102px;
-  vertical-align: middle;
+  min-height: 36mm;
+  height: auto;
+  vertical-align: top;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {
@@ -4064,9 +4238,23 @@ body.login-screen-active #app-main {
 }
 
 @media print {
+  /* Full page: 210×297mm; margins expressed as 10mm L/R + 20mm top/bottom bands in HTML (inv-a4-page) */
   @page {
     size: A4 portrait;
-    margin: 10mm 9mm 12mm;
+    margin: 0;
+  }
+
+  /* Screen-only overflow (e.g. #view-invoice overflow-x: auto) must not show scrollbars in print preview */
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  #app-main,
+  #view-invoice {
+    overflow: visible !important;
+    max-height: none !important;
   }
 
   body * {
@@ -4085,12 +4273,29 @@ body.login-screen-active #app-main {
     width: 100%;
     border: none;
     box-shadow: none;
+    /* Keep same horizontal band as on-screen view (centered block below) */
     padding: 0;
+    overflow: visible !important;
   }
 
-  #invoice-print-root .invoice-print-outer {
-    padding: 0;
-    border: none;
+  /* Horizontal inset only — vertical padding + 297mm-tall shell caused a blank second page */
+  #invoice-print-root.invoice-print-outer {
+    padding: 0 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    max-width: 210mm;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Same shell as view + PDF: keep flex, min-heights, sheet frame, items stretch — do not strip layout here */
+  #invoice-print-root .inv-a4-page {
+    width: 210mm;
+    max-width: none;
+    margin: 0 auto;
+    padding: 0 10mm;
+    box-sizing: border-box;
   }
 
   /* Meta table: explicit borders (same as line items) — do not rely on background “gutter” */
@@ -4106,7 +4311,9 @@ body.login-screen-active #app-main {
     width: 100%;
     min-width: 0;
     max-width: none;
-    font-size: 10pt;
+    /* Same base size as on-screen compact invoice (was 10pt — looked larger than preview) */
+    font-size: 10px;
+    line-height: 1.2;
     font-family: Arial, Helvetica, sans-serif !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -4173,6 +4380,107 @@ body.login-screen-active #app-main {
   .dashboard-qo-modal {
     display: none !important;
   }
+}
+
+/*
+ * PDF download uses html2canvas, which evaluates CSS as screen — @media print is ignored.
+ * While generating a PDF we set html.invoice-pdf-emulate-print so these rules match print output.
+ * Do NOT use position:absolute on #invoice-print-root here — html2canvas often rasterizes a blank image.
+ * Print preview still uses @media print absolute positioning to hide sibling chrome; PDF only captures this node.
+ */
+html.invoice-pdf-emulate-print #invoice-print-root {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 100%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  overflow: visible !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root.invoice-print-outer {
+  padding: 0 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  max-width: 210mm;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .inv-a4-page {
+  width: 210mm;
+  max-width: none;
+  margin: 0 auto;
+  padding: 0 10mm;
+  box-sizing: border-box;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .inv-meta-print-table {
+  border-collapse: collapse;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .inv-meta-print-table td.inv-meta-td {
+  border: 1px solid #000;
+}
+
+html.invoice-pdf-emulate-print .gst-invoice.invoice-a4-compact.invoice-a4-single {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  font-size: 10px;
+  line-height: 1.2;
+  font-family: Arial, Helvetica, sans-serif !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+html.invoice-pdf-emulate-print .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-print-sheet {
+  border: 2pt solid #000;
+  box-sizing: border-box;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-header-stack-table,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-print-table,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-words-balances-table,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-bank-terms-table {
+  border-color: #000;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-header-stack-table td,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-print-table th,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-print-table td {
+  border-color: #000;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > thead > tr > th,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tbody > tr > td,
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tfoot > tr > td {
+  border-top: none !important;
+  border-bottom: none !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > thead > tr > th {
+  border-bottom: 1px solid #000 !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tfoot > tr.inv-goods-total-row > td {
+  border-top: 1px solid #000 !important;
+  border-bottom: 1px solid #000 !important;
+}
+
+html.invoice-pdf-emulate-print .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-pdf-footer-tail {
+  margin-top: 8pt;
+}
+
+html.invoice-pdf-emulate-print .inv-print-table thead {
+  display: table-header-group;
+}
+
+html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 /* —— Business dashboard (analytics) —— */
@@ -4793,7 +5101,7 @@ body.login-screen-active #app-main {
   border: 1px solid #000 !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table > tbody > tr:first-child > td {
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--head > tbody > tr:first-child > td {
   border-left: none !important;
   border-right: none !important;
   border-top: none !important;
@@ -4884,62 +5192,45 @@ body.login-screen-active #app-main {
   padding-left: 6px !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-row {
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-stack {
   display: flex !important;
-  flex-direction: row !important;
-  align-items: stretch !important;
-  justify-content: flex-start !important;
-  gap: 12px !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  justify-content: space-between !important;
   width: 100% !important;
-  min-height: 102px !important;
-  height: 102px !important;
-  max-height: 102px !important;
+  min-height: 32mm !important;
   box-sizing: border-box !important;
-  overflow: visible !important;
+  padding-right: 5mm !important;
+  text-align: right !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-wrap {
-  flex: 0 0 auto !important;
-  flex-shrink: 0 !important;
-  align-self: center !important;
-  max-width: 46% !important;
-  min-width: 104px !important;
-  height: auto !important;
-  max-height: 100% !important;
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-stack .inv-sign-stamp-wrap {
+  flex: 1 1 auto !important;
   display: flex !important;
   align-items: center !important;
-  justify-content: center !important;
+  justify-content: flex-end !important;
+  width: 100% !important;
+  min-height: 16mm !important;
+  padding: 2mm 0 !important;
+  box-sizing: border-box !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-stamp-img {
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-stamp-img {
   display: block !important;
   width: auto !important;
   height: auto !important;
-  max-height: 96px !important;
+  max-height: 20mm !important;
   max-width: 150px !important;
   aspect-ratio: 656 / 1024 !important;
   object-fit: contain !important;
-  object-position: center center !important;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-text {
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: space-between !important;
-  align-items: flex-end !important;
-  align-self: stretch !important;
-  height: 100% !important;
-  box-sizing: border-box !important;
-  text-align: right !important;
+  object-position: center right !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-for,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
   margin: 0 !important;
-  line-height: 1.25 !important;
+  line-height: 1.3 !important;
+  flex: 0 0 auto !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
@@ -4948,8 +5239,9 @@ body.login-screen-active #app-main {
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
-  height: 102px !important;
-  vertical-align: middle !important;
+  min-height: 36mm !important;
+  height: auto !important;
+  vertical-align: top !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {
@@ -4972,6 +5264,36 @@ body.login-screen-active #app-main {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* Title centered in the top 20mm band */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-top-band .inv-outside-header {
+  margin: 0 !important;
+  font-size: 11pt;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-top-band .inv-outside-header-type {
+  margin: 0;
+  padding: 0;
+  font-size: 9pt;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #111;
+}
+
+/* Footer lines centered in the bottom 20mm band */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-bottom-band .inv-footer-jurisdiction,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-bottom-band .inv-computer-gen {
+  border: none !important;
+  margin: 0;
+  padding: 0;
+  font-size: 9pt;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer .inv-footer-jurisdiction,
@@ -5095,6 +5417,32 @@ body.login-screen-active #app-main {
   min-width: 373.56px !important;
   padding: 0 !important;
   box-sizing: border-box !important;
+}
+
+/* A4 mm page shell: meta blocks follow col % (45/55), not fixed px */
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-invoiceinfo {
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-invoiceinfo .inv-meta-grid-seller {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 8.5rem !important;
+  max-height: none !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-invoiceinfo .inv-meta-grid-seller > tbody > tr,
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-invoiceinfo .inv-meta-grid-seller > tbody > tr > td {
+  height: auto !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-cell-buyer-info {
+  width: auto !important;
+  min-width: 0 !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-buyer-info .inv-meta-grid-1col {

@@ -557,16 +557,19 @@ function buildSignatureTable(inv, options = {}) {
   const subForSig = inv.sellerSubtitle ? ` ${escapeHtml(inv.sellerSubtitle)}` : "";
   const includeStamp = options.includeStamp === true;
 
-  const textBlock = `<div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</div>
-      <div class="inv-sign-auth">Authorised Signatory</div>`;
+  const forLine = `<div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</div>`;
+  const authLine = `<div class="inv-sign-auth">Authorised Signatory</div>`;
+  const textBlock = `${forLine}
+      ${authLine}`;
 
   const companyCell = includeStamp
     ? `<td class="inv-sign-company inv-sign-company--with-stamp">
-      <div class="inv-sign-company-row">
+      <div class="inv-sign-company-stack">
+        ${forLine}
         <div class="inv-sign-stamp-wrap" aria-hidden="true">
           <img class="inv-sign-stamp-img" src="${escapeHtml(resolveStampAssetUrl())}" alt="" width="150" height="235" decoding="sync" loading="eager" />
         </div>
-        <div class="inv-sign-company-text">${textBlock}</div>
+        ${authLine}
       </div>
     </td>`
     : `<td class="inv-sign-company">
@@ -589,18 +592,21 @@ function buildSignatureTable(inv, options = {}) {
 
 function buildFooterNoteOutside(inv) {
   const footerNote = inv.jurisdictionFooter || "Subject to Madurai Jurisdiction";
-  return `<div class="inv-outside-footer">
+  return `<div class="inv-outside-footer inv-a4-bottom-band">
     <div class="inv-footer-jurisdiction">${escapeHtml(footerNote)}</div>
     <div class="inv-computer-gen">This is a Computer Generated Invoice</div>
   </div>`;
 }
 
 function buildMainInvoiceTable(inv, options = {}) {
-  return `<table class="inv-root-table" role="presentation">
-  <colgroup>
+  const colgroup = `<colgroup>
     <col style="width:45%" />
     <col style="width:55%" />
-  </colgroup>
+  </colgroup>`;
+
+  return `<div class="inv-a4-sheet-frame">
+  <table class="inv-root-table inv-root-seg inv-root-seg--head" role="presentation">
+  ${colgroup}
   <tbody>
     <tr>
       <td class="inv-cell-company">${buildSellerTable(inv)}</td>
@@ -614,7 +620,19 @@ function buildMainInvoiceTable(inv, options = {}) {
       <td class="inv-cell-buyer"><div class="block-label">Buyer (bill to)</div>${buildBillToTable(inv)}</td>
       <td class="inv-cell-buyer-info">${buildBuyerTermsOnlyGrid(inv)}</td>
     </tr>
-    <tr><td colspan="2" class="inv-cell-items">${buildItemsTable(inv)}</td></tr>
+  </tbody>
+  </table>
+  <div class="inv-a4-sheet-grow">
+    <table class="inv-root-table inv-root-seg inv-root-seg--items" role="presentation">
+    ${colgroup}
+    <tbody>
+      <tr class="inv-root-row-items"><td colspan="2" class="inv-cell-items"><div class="inv-items-stretch">${buildItemsTable(inv)}</div></td></tr>
+    </tbody>
+    </table>
+  </div>
+  <table class="inv-root-table inv-root-seg inv-root-seg--tail" role="presentation">
+  ${colgroup}
+  <tbody>
     <tr><td colspan="2" class="inv-cell-tax">${buildTaxSummaryTable(inv)}</td></tr>
     <tr>
       <td colspan="2" class="inv-cell-footer-split">
@@ -634,20 +652,31 @@ function buildMainInvoiceTable(inv, options = {}) {
     </tr>
     <tr><td colspan="2" class="inv-cell-signature">${buildSignatureTable(inv, options)}</td></tr>
   </tbody>
-</table>`;
+  </table>
+</div>`;
 }
 
-function buildHeaderOutside() {
-  return `<div class="inv-outside-header">TAX INVOICE</div>`;
+function buildHeaderOutside(_inv, options = {}) {
+  const label = String(options.invoiceTypeLabel || "").trim();
+  const typeLine = label
+    ? `<div class="inv-outside-header-type">${escapeHtml(label)}</div>`
+    : "";
+  return `<div class="inv-outside-header-wrap">
+    <div class="inv-outside-header">TAX INVOICE</div>${typeLine}
+  </div>`;
 }
 
 export function buildInvoiceHtml(inv, options = {}) {
-  return `${buildHeaderOutside()}${buildMainInvoiceTable(inv, options)}${buildFooterNoteOutside(inv)}`;
+  return `<div class="inv-a4-page">
+  <div class="inv-a4-top-band">${buildHeaderOutside(inv, options)}</div>
+  <div class="inv-a4-sheet">${buildMainInvoiceTable(inv, options)}</div>
+  ${buildFooterNoteOutside(inv)}
+</div>`;
 }
 
 export function renderInvoiceDocument(inv, options = {}) {
   const root = document.createElement("div");
-  root.className = "invoice-doc gst-invoice invoice-a4-compact invoice-a4-single";
+  root.className = "invoice-doc gst-invoice invoice-a4-compact invoice-a4-single inv-a4-layout";
   root.innerHTML = buildInvoiceHtml(inv, options);
   root.querySelectorAll("img.inv-sign-stamp-img").forEach((img) => {
     img.src = resolveStampAssetUrl();
