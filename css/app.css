@@ -1903,18 +1903,27 @@ body.login-screen-active #app-main {
   margin: 0.15rem 0 0.65rem;
 }
 
-/* Invoice view: never stretch to fill the viewport (prevents huge blank band + PDF clipping) */
+/* Invoice view: full A4 width on every screen (no shrinking); pan with bottom horizontal scrollbar */
 #view-invoice {
   height: auto;
   min-height: 0;
-  /* Allow horizontal scroll on very narrow viewports; avoid clipping a full A4-width block */
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 /* A4 content is 210mm (~794px); 768px was clipping Amount column, bank block, tax table */
 #view-invoice.container {
   max-width: min(100%, 920px);
+}
+
+/* Do not shrink the page shell to viewport — same layout as a wide screen; scroll parent instead */
+#view-invoice .inv-a4-page {
+  max-width: none;
+  width: 210mm;
+  min-width: 210mm;
+}
+
+#view-invoice .gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout {
+  min-width: 100%;
+  max-width: none;
 }
 
 #invoice-print-root.invoice-print-outer {
@@ -1926,6 +1935,10 @@ body.login-screen-active #app-main {
   padding-bottom: 0;
   padding-left: 0.85rem;
   padding-right: 0.85rem;
+  /* Bottom horizontal scrollbar when viewport is narrower than the invoice */
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
 }
 
 .invoice-print-outer {
@@ -1939,12 +1952,29 @@ body.login-screen-active #app-main {
   overflow-y: visible;
 }
 
-/* Horizontal scroll on small viewports only (invoice is fixed 680px wide) */
-@media (max-width: 768px) {
-  .invoice-print-outer {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
+/* Invoice view screen: scrollbar styling (horizontal bar at bottom of preview card) */
+#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 6px;
+}
+
+#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-thumb {
+  background: rgba(26, 95, 74, 0.45);
+  border-radius: 6px;
+}
+
+#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 95, 74, 0.65);
+}
+
+#view-invoice #invoice-print-root.invoice-print-outer {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(26, 95, 74, 0.55) rgba(0, 0, 0, 0.08);
 }
 
 .invoice-doc {
