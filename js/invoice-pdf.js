@@ -167,6 +167,21 @@ function nz(s) {
 /** Printed value when a field is empty (avoids em dash; keeps cell height). */
 const EMPTY_FIELD = "\u00A0";
 
+/** Seven-column tax grid: `n` parts of 7 (used for equal cols and 5|2 footer split). */
+function pctOf7(n) {
+  return `${((100 * n) / 7).toFixed(6)}%`;
+}
+
+function taxSummaryColgroup() {
+  const w = pctOf7(1);
+  return `<colgroup>${Array.from({ length: 7 }, () => `<col style="width:${w}" />`).join("")}</colgroup>`;
+}
+
+/** Declaration | bank: same widths as tax cols 1–5 and 6–7 so bank border lines up with SGST Rate|Amount. */
+function footerSplitColgroup() {
+  return `<colgroup><col style="width:${pctOf7(5)}" /><col style="width:${pctOf7(2)}" /></colgroup>`;
+}
+
 /** Receivable balance line: positive = Dr (due), negative = Cr (advance / credit). */
 function formatBalanceLine(label, amount) {
   const a = Number(amount);
@@ -190,13 +205,13 @@ function partyPhoneContactRow(p) {
 
 function kvRow(k, v) {
   if (!nz(v)) return "";
-  return `<tr><td class="inv-k">${escapeHtml(k)}</td><td class="inv-kc">:</td><td class="inv-v">${escapeHtml(v)}</td></tr>`;
+  return `<tr><td class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${escapeHtml(v)}</span></td></tr>`;
 }
 
 function buildPartyTable(p) {
   const rows = [
-    `<tr><td colspan="3" class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></td></tr>`,
-    `<tr><td colspan="3" class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</td></tr>`,
+    `<tr><td class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></td></tr>`,
+    `<tr><td class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</td></tr>`,
     partyPhoneContactRow(p),
     kvRow("GSTIN/UIN", p.gstin),
     kvRow("PAN / IT No", p.pan),
@@ -210,7 +225,7 @@ function buildPartyTable(p) {
     .filter(Boolean)
     .join("");
 
-  return `<table class="inv-subtable inv-party-table" role="presentation"><colgroup><col class="inv-party-col-k" /><col class="inv-party-col-c" /><col class="inv-party-col-v" /></colgroup><tbody>${rows}</tbody></table>`;
+  return `<table class="inv-subtable inv-party-table" role="presentation"><tbody>${rows}</tbody></table>`;
 }
 
 function buildSellerTable(inv) {
@@ -390,8 +405,8 @@ function buildItemsTable(inv) {
 
   return `<table class="inv-subtable inv-print-table inv-items" role="presentation">
     <colgroup>
-      <col style="width:28px" />
-      <col style="width:300px" />
+      <col style="width:40px" />
+      <col style="width:288px" />
       <col style="width:66px" />
       <col style="width:58px" />
       <col style="width:66px" />
@@ -400,7 +415,7 @@ function buildItemsTable(inv) {
     </colgroup>
     <thead>
       <tr>
-        <th class="inv-th-sl">Sl.N<br />o.</th>
+        <th class="inv-th-sl">Sl.No.</th>
         <th>Description of Goods</th>
         <th>HSN/SAC</th>
         <th class="num">Quantity</th>
@@ -495,13 +510,14 @@ function buildTaxSummaryTable(inv) {
           .join("");
 
   return `<table class="inv-subtable inv-print-table inv-tax-summary" role="presentation">
+${taxSummaryColgroup()}
 <thead>
   <tr>
     <th rowspan="2">HSN/SAC</th>
-    <th rowspan="2" class="num">Taxable Value</th>
+    <th rowspan="2" class="num inv-tax-th-stacked">Taxable<br />Value</th>
     <th colspan="2" class="num">CGST</th>
     <th colspan="2" class="num">SGST/UTGST</th>
-    <th rowspan="2" class="num">Total Tax Amount</th>
+    <th rowspan="2" class="num inv-tax-th-stacked">Total<br />Tax Amount</th>
   </tr>
   <tr>
     <th class="num">Rate</th>
@@ -599,9 +615,10 @@ function buildFooterNoteOutside(inv) {
 }
 
 function buildMainInvoiceTable(inv, options = {}) {
+  /* 50/50 matches goods table Description|HSN boundary (Sl.No + Desc = 50% of fixed col sum). */
   const colgroup = `<colgroup>
-    <col style="width:45%" />
-    <col style="width:55%" />
+    <col style="width:50%" />
+    <col style="width:50%" />
   </colgroup>`;
 
   return `<div class="inv-a4-sheet-frame">
@@ -637,10 +654,7 @@ function buildMainInvoiceTable(inv, options = {}) {
     <tr>
       <td colspan="2" class="inv-cell-footer-split">
         <table class="inv-subtable inv-footer-split" role="presentation">
-          <colgroup>
-            <col style="width:70%" />
-            <col style="width:30%" />
-          </colgroup>
+          ${footerSplitColgroup()}
           <tbody>
             <tr>
               <td class="inv-cell-declaration">${buildDeclarationBlock(inv)}</td>
