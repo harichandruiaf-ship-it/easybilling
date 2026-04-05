@@ -4440,6 +4440,14 @@ body.login-screen-active #app-main {
     border-bottom: 1px solid #000 !important;
   }
 
+  #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tfoot > tr:last-child > td {
+    border-bottom: none !important;
+  }
+
+  #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary thead tr:first-child > th {
+    border-top: 1px solid #000 !important;
+  }
+
   .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-pdf-footer-tail {
     margin-top: 8pt;
   }
@@ -4556,6 +4564,14 @@ html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compa
 html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tfoot > tr.inv-goods-total-row > td {
   border-top: 1px solid #000 !important;
   border-bottom: 1px solid #000 !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items > tfoot > tr:last-child > td {
+  border-bottom: none !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary thead tr:first-child > th {
+  border-top: 1px solid #000 !important;
 }
 
 html.invoice-pdf-emulate-print .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-pdf-footer-tail {
@@ -5189,6 +5205,23 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   border: 1px solid #000 !important;
 }
 
+/* Inner .inv-items / .inv-tax-summary draw the box; omit root td border + padding (avoids doubled lines) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single td.inv-cell-items,
+.gst-invoice.invoice-a4-compact.invoice-a4-single td.inv-cell-tax {
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* Goods ↔ tax: one seam — tax thead top only (goods tfoot strip clears all row bottoms, including words/balance) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary thead tr:first-child > th {
+  border-top: 1px solid #000 !important;
+}
+
+/* One horizontal between tax block and declaration row (tax tfoot bottom only) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single td.inv-cell-footer-split {
+  border-top: none !important;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-seg--head > tbody > tr:first-child > td {
   border-left: none !important;
   border-right: none !important;
@@ -5680,13 +5713,7 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   padding-bottom: 3px !important;
 }
 
-/* Goods + Tax: remove outer frame feel, keep only table grid lines */
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax {
-  border: none !important;
-  padding: 0 !important;
-}
-
+/* Goods + tax inner tables: collapse only (outer td border cleared in FINAL block) */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary {
   margin: 0 !important;
@@ -5702,19 +5729,6 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   max-width: 100% !important;
   table-layout: fixed !important;
   box-sizing: border-box !important;
-}
-
-/* Reduce visual darkness only for Goods + Tax boxes */
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary {
-  border-color: rgba(0, 0, 0, 0.72) !important;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items td,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-items .inv-items th,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary td,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-tax .inv-tax-summary th {
-  border-color: rgba(0, 0, 0, 0.72) !important;
 }
 
 /* Reference | Other: center vertical to bottom of block (above ship-to); 50% matches colspan 3|3; start at row 3 so row 1’s 3×2 layout is not cut */
@@ -5760,6 +5774,8 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   border-top: 1px solid #000 !important;
   border-bottom: 1px solid #000 !important;
 }
+
+/* tfoot strip above already clears last row bottom; tax thead top (FINAL block) draws the seam above HSN */
 
 /* ----- Reports (period analytics + exports) ----- */
 .report-view {
