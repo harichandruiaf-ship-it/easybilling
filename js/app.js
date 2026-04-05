@@ -39,6 +39,7 @@ import {
   deleteCustomer,
   getCustomerById,
 } from "./customers.js";
+import { APP_VERSION } from "./app-version.js";
 import { withLoading, showLoading, hideLoading } from "./loading.js";
 import { showToast, showValidationToast } from "./toast.js";
 import { mountDashboard, closeDashboardDetail, closeDashboardQuickOrderModal } from "./dashboard.js";
@@ -1088,6 +1089,41 @@ async function fillSettingsForm() {
   const okOk = document.getElementById("settings-success");
   if (errOk) errOk.textContent = "";
   if (okOk) okOk.textContent = "";
+}
+
+/**
+ * Full reload with cache bypass: clears Cache Storage + unregisters service workers, then navigates
+ * with a one-time query param so the HTML document is re-fetched (works on mobile and desktop).
+ */
+async function hardRefreshApp() {
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const next = new URL(window.location.href);
+  next.searchParams.set("_hr", String(Date.now()));
+  window.location.replace(next.toString());
+}
+
+function setupSettingsHardRefresh() {
+  const verEl = document.getElementById("settings-app-version-value");
+  if (verEl) verEl.textContent = APP_VERSION;
+  document.getElementById("btn-settings-hard-refresh")?.addEventListener("click", () => {
+    showToast("Refreshing app…", { type: "info" });
+    void hardRefreshApp();
+  });
 }
 
 function setupSettingsForm() {
@@ -3102,6 +3138,7 @@ onUserChanged((user) => {
 setupAuthForm();
 setupLoginHeroCarousel();
 setupSettingsForm();
+setupSettingsHardRefresh();
 setupInvoiceForm();
 setupInvoicePreviewModal();
 setupCustomerEditModal();
