@@ -1,4 +1,4 @@
-const CACHE_NAME = "easy-billing-v25";
+const CACHE_NAME = "easy-billing-v26";
 const ASSETS = [
   "./index.html",
   "./manifest.json",

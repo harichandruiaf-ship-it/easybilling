@@ -142,6 +142,11 @@ function parseLocalYmd(s) {
   return new Date(p[0], p[1] - 1, p[2]);
 }
 
+/** Local calendar yyyy-mm-dd for filenames (avoid UTC shift from toISOString). */
+function formatLocalYmd(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Human-readable payment method for ledger / recent transactions. */
 function paymentMethodLabel(code) {
   const m = {
@@ -163,9 +168,14 @@ function historyDateRange(criteria) {
   const endToday = endOfLocalDay(now);
   if (preset === "all") return null;
   if (preset === "custom") {
-    const a = parseLocalYmd(criteria.dateFrom);
-    const b = parseLocalYmd(criteria.dateTo);
+    let a = parseLocalYmd(criteria.dateFrom);
+    let b = parseLocalYmd(criteria.dateTo);
     if (!a || !b) return null;
+    if (a.getTime() > b.getTime()) {
+      const t = a;
+      a = b;
+      b = t;
+    }
     return { start: startOfLocalDay(a), end: endOfLocalDay(b) };
   }
   if (preset === "today") return { start: startOfLocalDay(now), end: endToday };
@@ -271,8 +281,8 @@ function filterHistoryRows(rows, c) {
     if (!matchesSearchTokens(historyQuickSearchBlob(row), c.quickSearch || "")) return false;
     if (c.customer) {
       const target = normLower(c.customer);
-      const buyer = normLower(row.customerName);
-      const consignee = normLower(row.consigneeName);
+      const buyer = normLower(row.customerName || "");
+      const consignee = normLower(row.consigneeName || "");
       if (buyer !== target && consignee !== target) return false;
     }
     const min = c.amountMin;
@@ -2964,7 +2974,7 @@ async function downloadHistoryFilteredZip() {
     const prog2 = document.querySelector(".app-loading-text");
     if (prog2) prog2.textContent = "Creating ZIP file…";
     const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = formatLocalYmd();
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement("a");
     a.href = url;

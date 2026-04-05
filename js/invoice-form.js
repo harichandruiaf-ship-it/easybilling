@@ -154,6 +154,7 @@ export function initInvoiceForm(opts) {
 
   let taxRates = { cgstPercent: 2.5, sgstPercent: 2.5 };
   let customerList = [];
+  let formPreviewBusy = false;
 
   function closeCustomerListbox() {
     if (!listbox) return;
@@ -585,6 +586,8 @@ export function initInvoiceForm(opts) {
       } catch (ex) {
         const msg = ex && ex.message ? String(ex.message) : "Could not open preview.";
         showValidationToast(msg, { errEl });
+      } finally {
+        formPreviewBusy = false;
       }
     }
   });
