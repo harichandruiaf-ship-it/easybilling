@@ -55,6 +55,24 @@ import {
 const app = initializeApp(firebaseConfig);
 const { auth, db } = initAuthServices(app);
 
+/** Lazy-loaded so a bad/failed `reports.js` fetch does not block the whole app. */
+let reportsModule = null;
+async function loadReportsModule() {
+  if (!reportsModule) {
+    try {
+      reportsModule = await import("./reports.js");
+    } catch (ex) {
+      console.error("[loadReportsModule]", ex);
+      throw new Error(
+        ex?.message?.includes("Failed to fetch") || ex?.name === "TypeError"
+          ? "Could not load Reports (check network or refresh)."
+          : ex?.message || "Could not load Reports."
+      );
+    }
+  }
+  return reportsModule;
+}
+
 /** Shown in the browser tab; keep in sync with visible screen names. */
 const APP_NAME = "Easy Billing";
 
@@ -64,6 +82,7 @@ const navMain = document.getElementById("nav-main");
 const views = {
   login: document.getElementById("view-login"),
   dashboard: document.getElementById("view-dashboard"),
+  reports: document.getElementById("view-reports"),
   quickOrders: document.getElementById("view-quick-orders"),
   settings: document.getElementById("view-settings"),
   create: document.getElementById("view-create"),
@@ -551,7 +570,12 @@ function hideAllViews() {
 function showView(name) {
   hideAllViews();
   const v = views[name];
-  if (v) v.hidden = false;
+  if (v) {
+    v.hidden = false;
+  } else {
+    console.warn("[showView] Missing view container:", name);
+    if (views.dashboard) views.dashboard.hidden = false;
+  }
   document.body.classList.toggle("login-screen-active", name === "login");
 }
 
@@ -559,7 +583,7 @@ function parseHash() {
   const raw = (window.location.hash || "#/").replace(/^#\/?/, "");
   const [pathPart, queryPart] = raw.split("?");
   const parts = pathPart.split("/").filter(Boolean);
-  const route = parts[0] || "dashboard";
+  const route = (parts[0] || "dashboard").toLowerCase();
   const id = parts[1] || null;
   const params = new URLSearchParams(queryPart || "");
   const customerId = params.get("customer") || null;
@@ -602,6 +626,13 @@ async function route() {
 
   try {
     closeDashboardQuickOrderModal();
+    if (r !== "reports" && reportsModule) {
+      try {
+        reportsModule.teardownReports();
+      } catch (_) {
+        /* ignore teardown if DOM/charts already gone */
+      }
+    }
     if (r !== "dashboard") {
       closeDashboardDetail();
     }
@@ -753,6 +784,19 @@ async function route() {
     if (r === "history") {
       showView("history");
       await runRouteStep("history", () => withLoading(() => renderHistory(), "Loading invoices…"));
+      return;
+    }
+
+    if (r === "reports") {
+      showView("reports");
+      if (currentUser) {
+        await runRouteStep("reports", () =>
+          withLoading(async () => {
+            const rm = await loadReportsModule();
+            await rm.mountReports(db, currentUser.uid);
+          }, "Loading reports…")
+        );
+      }
       return;
     }
 
@@ -2626,6 +2670,9 @@ function updateDocumentTitle() {
     case "quick-orders":
       document.title = `Quick orders${base}`;
       break;
+    case "reports":
+      document.title = `Reports${base}`;
+      break;
     case "create":
       document.title = (editId ? "Edit GST invoice" : "New GST invoice") + base;
       break;
@@ -2687,6 +2734,9 @@ function syncAppChrome() {
       break;
     case "quick-orders":
       segments.push({ current: true, label: "Quick orders" });
+      break;
+    case "reports":
+      segments.push({ current: true, label: "Reports" });
       break;
     case "create":
       segments.push({ current: true, label: editId ? "Edit GST invoice" : "New GST invoice" });

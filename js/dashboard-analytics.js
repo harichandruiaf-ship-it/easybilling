@@ -7,6 +7,12 @@ function invoiceDate(d) {
   return null;
 }
 
+/** Local calendar YYYY-MM-DD (must match chart day labels — do not use toISOString, it is UTC). */
+function localYmd(d) {
+  if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /**
  * @param {Array<object>} invoices - rows from listInvoicesForUser
  * @param {Array<object>} customers - from listCustomers
@@ -26,6 +32,12 @@ export function computeAnalytics(invoices, customers) {
   const byCustomer = new Map();
   const byMonth = new Map();
   const byDay = new Map();
+
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const chartStartLocal = new Date(todayLocal);
+  chartStartLocal.setDate(chartStartLocal.getDate() - 29);
+  const dailyWindowStartKey = localYmd(chartStartLocal);
+  const dailyWindowEndKey = localYmd(todayLocal);
 
   for (const inv of rows) {
     const t = round2(Number(inv.total) || 0);
@@ -53,10 +65,9 @@ export function computeAnalytics(invoices, customers) {
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       byMonth.set(monthKey, round2((byMonth.get(monthKey) || 0) + t));
 
-      const dayKey = d.toISOString().slice(0, 10);
-      const ageDays = (now.getTime() - d.getTime()) / 86400000;
-      if (ageDays <= 30 && ageDays >= -1) {
-        byDay.set(dayKey, round2((byDay.get(dayKey) || 0) + t));
+      const dk = localYmd(d);
+      if (dk && dk >= dailyWindowStartKey && dk <= dailyWindowEndKey) {
+        byDay.set(dk, round2((byDay.get(dk) || 0) + t));
       }
     }
 
@@ -91,12 +102,11 @@ export function computeAnalytics(invoices, customers) {
   const dailyLabels = [];
   const dailyData = [];
   for (let i = 29; i >= 0; i--) {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
+    const d = new Date(todayLocal);
     d.setDate(d.getDate() - i);
-    const dayKey = d.toISOString().slice(0, 10);
+    const dayKey = localYmd(d);
     dailyLabels.push(`${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`);
-    dailyData.push(round2(byDay.get(dayKey) || 0));
+    dailyData.push(round2((dayKey && byDay.get(dayKey)) || 0));
   }
 
   const byMethod = new Map();

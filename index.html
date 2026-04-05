@@ -19,6 +19,8 @@
   }
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Vendored: CDN path was unreliable (404); same-origin + SW cache for offline PWA -->
+  <script src="./js/vendor/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
@@ -31,6 +33,10 @@
       <a href="#/dashboard" data-nav-route="dashboard" class="nav-link" title="Billing overview and charts">
         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         <span>Dashboard</span>
+      </a>
+      <a href="#/reports" data-nav-route="reports" class="nav-link" title="Period reports, charts, and exports">
+        <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 6-7"/></svg>
+        <span>Reports</span>
       </a>
       <a href="#/quick-orders" data-nav-route="quick-orders" class="nav-link" title="Jot orders to bill later">
         <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
@@ -347,6 +353,75 @@
         <a href="#/quick-orders" class="text-link">Quick orders</a>
       </p>
       <div id="dashboard-root" class="dashboard-root"></div>
+    </section>
+
+    <!-- Reports (period-scoped analytics + PDF / CSV) -->
+    <section id="view-reports" class="view container container-wide report-view" hidden>
+      <h1 class="page-title report-page-title">
+        <span class="page-title-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 6-7"/></svg>
+        </span>
+        <span class="page-title-text">Reports</span>
+      </h1>
+      <p class="page-quick-links muted small">
+        <a href="#/dashboard" class="text-link">Dashboard</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/history" class="text-link">Invoice register</a>
+        <span class="page-quick-sep" aria-hidden="true">·</span>
+        <a href="#/settings" class="text-link">Business settings</a>
+      </p>
+
+      <div class="card report-filters">
+        <h2 class="h2-small report-filters-heading">Filters</h2>
+        <div class="report-filters-grid">
+          <label class="report-filter-field">
+            Period
+            <select id="report-preset">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="this_week">This week</option>
+              <option value="this_month">This month</option>
+              <option value="this_quarter">This quarter</option>
+              <option value="this_year">This year</option>
+              <option value="this_fy_india">Current FY (India)</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <div id="report-custom-dates" class="report-custom-dates hidden">
+            <label>
+              From
+              <input type="date" id="report-from" class="input-date" />
+            </label>
+            <label>
+              To
+              <input type="date" id="report-to" class="input-date" />
+            </label>
+          </div>
+          <label class="report-filter-field">
+            Customer
+            <select id="report-customer">
+              <option value="">All customers</option>
+            </select>
+          </label>
+          <label class="report-filter-field">
+            Payment status
+            <select id="report-payment-status">
+              <option value="">All</option>
+              <option value="paid">Paid</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial</option>
+            </select>
+          </label>
+        </div>
+        <div class="btn-row wrap report-filters-actions">
+          <button type="button" class="btn btn-primary" id="report-generate">Generate report</button>
+          <button type="button" class="btn btn-secondary" id="report-download-pdf">Download PDF</button>
+          <button type="button" class="btn btn-secondary" id="report-download-csv">Download CSV</button>
+        </div>
+      </div>
+
+      <div id="reports-root" class="reports-root"></div>
+      <div id="report-export-root" class="report-export-root" aria-hidden="true"></div>
     </section>
 
     <!-- Quick orders (draft reminders before invoicing) -->
@@ -1316,6 +1391,7 @@
     <span class="app-footer-brand">Easy Billing — GST billing &amp; invoicing</span>
     <span class="app-footer-nav hidden" id="footer-quick-nav" aria-label="Quick links">
       <a href="#/dashboard" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a>
+      <a href="#/reports" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 6-7"/></svg>Reports</a>
       <a href="#/quick-orders" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Quick orders</a>
       <a href="#/create" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>New invoice</a>
       <a href="#/history" class="footer-nav-link"><svg class="footer-nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>Invoices</a>

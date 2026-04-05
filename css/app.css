@@ -5695,3 +5695,346 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   border-top: 1px solid #000 !important;
   border-bottom: 1px solid #000 !important;
 }
+
+/* ----- Reports (period analytics + exports) ----- */
+.report-view {
+  --report-accent: #0f766e;
+  --report-accent-soft: rgba(15, 118, 110, 0.12);
+  --report-card-shadow: 0 2px 12px rgba(15, 118, 110, 0.08);
+}
+
+.report-page-title .page-title-icon {
+  color: var(--report-accent);
+}
+
+.report-filters {
+  margin-bottom: 1.25rem;
+  border-color: rgba(15, 118, 110, 0.22);
+  box-shadow: var(--report-card-shadow);
+}
+
+.report-filters-heading {
+  margin-top: 0;
+  color: var(--text);
+}
+
+.report-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 1rem 1.25rem;
+  align-items: end;
+}
+
+.report-filters-grid select {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.report-filter-field {
+  display: block;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.report-custom-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.report-custom-dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.report-filters-actions {
+  margin-top: 1rem;
+}
+
+.report-loading-msg,
+.report-error {
+  margin: 1rem 0;
+}
+
+.report-card {
+  margin-bottom: 1.25rem;
+}
+
+.report-head {
+  border-left: 4px solid var(--report-accent);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--report-accent-soft) 100%);
+}
+
+.report-head-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  color: var(--text);
+}
+
+.report-head-meta {
+  margin: 0.25rem 0;
+  font-size: 0.95rem;
+}
+
+.report-head-k {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-right: 0.35rem;
+}
+
+.report-head-period {
+  margin: 0.5rem 0 0.15rem;
+}
+
+.report-head-generated {
+  margin: 0;
+}
+
+.report-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.35rem;
+}
+
+.report-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--shadow);
+  min-height: 5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+}
+
+.report-kpi--accent {
+  border-left: 4px solid var(--success);
+}
+
+.report-kpi--warn {
+  border-left: 4px solid #f59e0b;
+}
+
+.report-kpi-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.report-kpi-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.report-kpi-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.report-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.report-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.15rem;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .report-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem 1rem;
+  box-shadow: var(--shadow);
+  min-height: 280px;
+  position: relative;
+}
+
+.report-chart-card--wide {
+  grid-column: 1 / -1;
+}
+
+.report-chart-inner {
+  position: relative;
+  height: 260px;
+  width: 100%;
+}
+
+.report-chart-inner--tall {
+  height: 280px;
+}
+
+.report-chart-card canvas {
+  max-height: 320px;
+}
+
+.report-tables-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.15rem;
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .report-tables-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-table-card .h3-small {
+  margin-top: 0;
+}
+
+.report-table {
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.report-table th,
+.report-table td {
+  padding: 0.45rem 0.5rem;
+}
+
+/* Hidden PDF host (~A4 width at 96dpi). Keep off-screen when idle; during capture JS moves to body + --active so html2canvas sees real layout (far negative left often yields a blank PDF). */
+.report-export-root {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  width: 794px;
+  max-width: 100%;
+  z-index: -3;
+  pointer-events: none;
+  overflow: visible;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.report-export-root.report-export-root--active {
+  left: 0 !important;
+  top: 0 !important;
+  right: auto !important;
+  width: 794px !important;
+  max-width: 794px !important;
+  z-index: 2147483646 !important;
+  pointer-events: none !important;
+  /* html2canvas multiplies alpha; very low opacity produced blank PDFs */
+  opacity: 1 !important;
+  visibility: visible !important;
+  background: #fff !important;
+}
+
+/* Optional: dim chrome while capture runs (class toggled in JS) */
+html.report-pdf-capture body {
+  cursor: wait;
+}
+
+.report-export-doc {
+  padding: 20px 24px 32px;
+  color: #1c1f1e;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Minimal PDF (text/tables): ensure readable capture without chart images */
+.report-export-doc--pdf-min {
+  background: #ffffff;
+}
+
+.report-export-doc--pdf-min .muted {
+  color: #3d4540;
+}
+
+.report-export-h1 {
+  font-size: 22px;
+  margin: 0 0 8px;
+  color: #0f766e;
+}
+
+.report-export-h2 {
+  font-size: 15px;
+  margin: 20px 0 8px;
+  border-bottom: 1px solid #d8dedb;
+  padding-bottom: 4px;
+}
+
+.report-export-meta {
+  margin: 4px 0;
+}
+
+.report-export-kpi-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 11px;
+}
+
+.report-export-kpi-table th,
+.report-export-kpi-table td {
+  border: 1px solid #d8dedb;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.report-export-kpi-table th {
+  background: #f4f6f4;
+  font-weight: 600;
+}
+
+.report-export-img-wrap {
+  margin: 12px 0;
+  page-break-inside: avoid;
+}
+
+.report-export-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.report-export-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.report-export-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.report-export-data-table th,
+.report-export-data-table td {
+  border: 1px solid #d8dedb;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.report-export-data-table th {
+  background: #f4f6f4;
+}

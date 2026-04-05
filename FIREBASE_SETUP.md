@@ -152,6 +152,17 @@ The `--yes` flag is required so the script only runs when you mean it.
 
 **Manual option (small data):** In **Firestore → Data**, you can delete documents in `invoices`, `customers`, and `moneyTransactions` by hand. Invoice sequences live under `users/{yourUid}/meta/` as `invSeq_2026-2027` (one doc per account period) with `{ "nextNumber": <next> }`. The legacy `invoiceCounter` doc is unused for newly created invoices. For many rows, use the script above.
 
+## 11. Reports module — Phase 2 (optional, not implemented in the client yet)
+
+The **Reports** screen (Phase 1) loads invoices with the existing `listInvoicesForUser` query and filters by date on the client. Phase 2 can add:
+
+- **Money / collections report:** Implement `listMoneyTransactionsForUser(db, uid, { start, end })` in [`js/payments.js`](js/payments.js) and add a **Firestore composite index** on `moneyTransactions` for `userId` + `createdAt` (range), so you can show “payments received in period” vs “invoiced” without scanning unrelated customers.
+- **Quick orders:** Include [`js/quick-orders.js`](js/quick-orders.js) counts and completion stats in the selected period for operational reporting.
+- **GST / HSN detail:** Optional “detailed GST” mode that aggregates line-item HSN from full invoice reads (`getInvoiceById`) — heavier on reads; gate behind a toggle.
+- **Prior-period compare:** Run `computeReportAnalytics` twice (current vs previous period of equal length) and show KPI deltas on the Reports UI.
+
+For very large invoice volumes, consider **server-side date range queries** on `invoices` (with a suitable composite index) to avoid loading full history — that is a separate scaling step from Phase 1.
+
 ## Troubleshooting
 
 - **Blank page / module errors:** Ensure you are not opening `index.html` as `file://`. Use `START.bat` or another local server.

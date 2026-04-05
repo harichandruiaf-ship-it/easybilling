@@ -353,7 +353,7 @@ function renderChartsInRoot(root, a) {
   });
   chartInstances.push(pieTax);
 
-  const pm = a.paymentMethods;
+  const pm = a.paymentMethods.length ? a.paymentMethods : [["credit_sale", 0]];
   const barMethods = new Chart(document.getElementById("chart-methods"), {
     type: "bar",
     data: {
