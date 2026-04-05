@@ -1002,6 +1002,12 @@ h1 {
   font-weight: 500;
 }
 
+.form-block .settings-field-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 400;
+}
+
 .form-block input,
 .form-block textarea {
   width: 100%;

@@ -150,7 +150,7 @@ To remove **all invoices, customers, and money transaction rows** and reset the 
 
 The `--yes` flag is required so the script only runs when you mean it.
 
-**Manual option (small data):** In **Firestore → Data**, you can delete documents in `invoices`, `customers`, and `moneyTransactions` by hand, and set `users/{yourUid}/meta/invoiceCounter` to `{ "nextNumber": 1 }`. For many rows, use the script above.
+**Manual option (small data):** In **Firestore → Data**, you can delete documents in `invoices`, `customers`, and `moneyTransactions` by hand. Invoice sequences live under `users/{yourUid}/meta/` as `invSeq_2026-2027` (one doc per account period) with `{ "nextNumber": <next> }`. The legacy `invoiceCounter` doc is unused for newly created invoices. For many rows, use the script above.
 
 ## Troubleshooting
 

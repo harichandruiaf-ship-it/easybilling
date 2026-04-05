@@ -35,7 +35,7 @@ This DELETES every document in:
   - customers
   - moneyTransactions
 
-And resets users/{uid}/meta/invoiceCounter to { nextNumber: 1 } for each user.
+And resets users/{uid}/meta/invoiceCounter and users/{uid}/meta/invSeq_* to { nextNumber: 1 } for each user.
 
 Seller settings in users/{uid} are NOT deleted.
 `);
@@ -76,11 +76,13 @@ async function deleteCollectionInBatches(collectionName) {
 async function resetInvoiceCounters() {
   const usersSnap = await db.collection("users").get();
   for (const userDoc of usersSnap.docs) {
-    const counterRef = userDoc.ref.collection("meta").doc("invoiceCounter");
-    const c = await counterRef.get();
-    if (c.exists) {
-      await counterRef.set({ nextNumber: 1 });
-      console.log(`  Reset invoice counter for user ${userDoc.id}`);
+    const metaSnap = await userDoc.ref.collection("meta").get();
+    for (const m of metaSnap.docs) {
+      const id = m.id;
+      if (id === "invoiceCounter" || id.startsWith("invSeq_")) {
+        await m.ref.set({ nextNumber: 1 });
+        console.log(`  Reset meta/${id} for user ${userDoc.id}`);
+      }
     }
   }
 }

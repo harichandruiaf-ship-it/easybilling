@@ -37,12 +37,45 @@ async function assertCustomerAccessibleForOwner(db, uid, customerId) {
   }
 }
 
-function counterRef(db, uid) {
-  return doc(db, "users", uid, "meta", "invoiceCounter");
+/**
+ * India FY (Apr–Mar): label like "2026-2027" when subtitle / account period is not set in settings.
+ */
+export function defaultAccountPeriodLabelFromDate(d = new Date()) {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  if (m >= 3) {
+    return `${y}-${y + 1}`;
+  }
+  return `${y - 1}-${y}`;
 }
 
-function formatInvoiceNumber(seq) {
-  return `INV-${String(seq).padStart(4, "0")}`;
+/**
+ * Normalizes "Subtitle / account period" for invoice suffix (e.g. A/c 2026-2027 → 2026-2027).
+ */
+export function normalizeAccountPeriodLabel(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  s = s.replace(/^a\/c\.?\s*/i, "").trim();
+  s = s.replace(/\s*[\\/]\s*/g, "-");
+  s = s.replace(/\s+/g, "");
+  return s;
+}
+
+function resolveAccountPeriodForNewInvoice(payload) {
+  const fromSettings = normalizeAccountPeriodLabel(payload.sellerSubtitle);
+  if (fromSettings) return fromSettings;
+  return defaultAccountPeriodLabelFromDate();
+}
+
+/** One sequence per account period; doc id is safe for Firestore (no `/`). */
+function invoiceCounterRef(db, uid, periodLabel) {
+  const key = periodLabel.replace(/[^a-zA-Z0-9_-]/g, "_") || "period";
+  return doc(db, "users", uid, "meta", `invSeq_${key}`);
+}
+
+function formatInvoiceNumber(seq, accountPeriodLabel) {
+  const p = accountPeriodLabel || defaultAccountPeriodLabelFromDate();
+  return `${String(seq).padStart(3, "0")}/${p}`;
 }
 
 /**
@@ -159,7 +192,8 @@ function invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap) 
 export async function saveInvoice(db, uid, payload) {
   const invoiceRef = doc(collection(db, "invoices"));
   const invoiceId = invoiceRef.id;
-  const cRef = counterRef(db, uid);
+  const accountPeriod = resolveAccountPeriodForNewInvoice(payload);
+  const cRef = invoiceCounterRef(db, uid, accountPeriod);
   const customerId = (payload.customerId || "").trim();
   const total = round2(Number(payload.total) || 0);
   const paymentMethod = String(payload.paymentMethod || "credit_sale").trim() || "credit_sale";
@@ -176,7 +210,7 @@ export async function saveInvoice(db, uid, payload) {
       const v = counterSnap.data().nextNumber;
       next = typeof v === "number" && v >= 1 ? v : 1;
     }
-    const invoiceNumber = formatInvoiceNumber(next);
+    const invoiceNumber = formatInvoiceNumber(next, accountPeriod);
 
     let prev = 0;
     if (custRef && custSnap) {
