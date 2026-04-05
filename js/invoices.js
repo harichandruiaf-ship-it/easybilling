@@ -75,7 +75,9 @@ function invoiceCounterRef(db, uid, periodLabel) {
 
 function formatInvoiceNumber(seq, accountPeriodLabel) {
   const p = accountPeriodLabel || defaultAccountPeriodLabelFromDate();
-  return `${String(seq).padStart(3, "0")}/${p}`;
+  const n = Number(seq);
+  const serial = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+  return `${serial}/${p}`;
 }
 
 /**
