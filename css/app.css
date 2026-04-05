@@ -685,6 +685,25 @@ body.app-loading-active {
   margin-top: 0.15rem;
 }
 
+/* Review GST invoice (preview modal): horizontal pan on narrow screens — A4 width is wider than phone */
+@media (max-width: 640px) {
+  .invoice-preview-scroll {
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .invoice-preview-scroll .invoice-print-outer {
+    max-width: none;
+    width: 210mm;
+    min-width: 210mm;
+    margin-left: 0;
+    margin-right: auto;
+    box-sizing: border-box;
+  }
+}
+
 @media print {
   .app-loading-overlay,
   .toast-root {
