@@ -5426,6 +5426,7 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
 /* Make seller-right grid exactly same size as its parent cell */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo {
   padding: 0 !important;
+  position: relative !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo .inv-meta-grid-seller {
@@ -5499,6 +5500,11 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo .inv-meta-grid tr:last-child td,
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info .inv-meta-grid tr:last-child td {
   border-bottom: 1px solid #000 !important;
+}
+
+/* Ship-to last row: no bottom border on BOL / Motor Vehicle cells */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info .inv-meta-grid tr:last-child td:not(.inv-mid-sep) {
+  border-bottom: none !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-buyer-info .inv-meta-grid-1col td {
@@ -5637,9 +5643,27 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   height: 25% !important;
 }
 
-/* Ship-to right block: exactly 4 equal rows, no leftover blank area */
+/* Ship-to right block: equal rows; full-height center line (pseudo avoids border-collapse clipping on inv-mid-sep) */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info {
   padding: 0 !important;
+  position: relative !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: #000;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info .inv-meta-grid-2col td.inv-mid-sep {
+  border-left: none !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-consignee-info .inv-meta-grid-2col {
@@ -5693,7 +5717,29 @@ html.invoice-pdf-emulate-print .inv-print-table.inv-items tbody tr {
   border-color: rgba(0, 0, 0, 0.72) !important;
 }
 
-/* Reference No. & Date separator: single line only */
+/* Reference | Other: center vertical to bottom of block (above ship-to); 50% matches colspan 3|3; start at row 3 so row 1’s 3×2 layout is not cut */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 66.666667%;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: #000;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo .inv-meta-grid-seller > tbody > tr:last-child > td:first-child {
+  border-right: none !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo .inv-meta-grid-seller > tbody > tr:last-child > td:last-child {
+  border-left: none !important;
+}
+
+/* Reference row: no inner bottom border on nested cells (outer td edge = line above ship-to) */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-invoiceinfo .inv-meta-grid-seller > tbody > tr:last-child > td {
   border-bottom: none !important;
 }
