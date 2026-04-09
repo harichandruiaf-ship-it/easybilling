@@ -2857,9 +2857,9 @@ async function invoiceNodeToPdfBlob(node) {
   await new Promise((r) => requestAnimationFrame(r));
   await new Promise((r) => requestAnimationFrame(r));
   try {
-    /** Higher scale = sharper text and borders (html2canvas raster). Capped for memory. */
+    /** Higher scale = sharper text and borders (html2canvas raster). Min 3 for readable PDF; cap 4 for memory. */
     const dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    const pdfCanvasScale = Math.min(4, Math.max(2.5, dpr * 2));
+    const pdfCanvasScale = Math.min(4, Math.max(3, Math.round(dpr * 2.25)));
     const opts = {
       /* [top, left, bottom, right] mm — match @page { margin: 0 } used in print */
       margin: [0, 0, 0, 0],
@@ -2873,6 +2873,8 @@ async function invoiceNodeToPdfBlob(node) {
         scrollY: 0,
         scrollX: 0,
         backgroundColor: "#ffffff",
+        /* Crisper text on the canvas (helps vs default grayscale-ish raster) */
+        letterRendering: true,
         onclone: (clonedDoc, clonedEl) => {
           const root =
             clonedEl ||

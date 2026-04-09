@@ -167,19 +167,30 @@ function nz(s) {
 /** Printed value when a field is empty (avoids em dash; keeps cell height). */
 const EMPTY_FIELD = "\u00A0";
 
-/** Seven-column tax grid: `n` parts of 7 (used for equal cols and 5|2 footer split). */
-function pctOf7(n) {
-  return `${((100 * n) / 7).toFixed(6)}%`;
+/** Main invoice grid: 7 cols, sum 656px (Sl 40px). Tax HSN/SAC width uses nested table — see taxTableColgroup7(). */
+function invoiceColgroup7() {
+  return `<colgroup>
+    <col class="inv-col-sl" style="width:40px" />
+    <col class="inv-col-desc" style="width:288px" />
+    <col class="inv-col-hsn" style="width:62px" />
+    <col class="inv-col-qty" style="width:62px" />
+    <col class="inv-col-rate" style="width:54px" />
+    <col class="inv-col-per" style="width:54px" />
+    <col class="inv-col-amt" style="width:96px" />
+  </colgroup>`;
 }
 
-function taxSummaryColgroup() {
-  const w = pctOf7(1);
-  return `<colgroup>${Array.from({ length: 7 }, () => `<col style="width:${w}" />`).join("")}</colgroup>`;
-}
-
-/** Declaration | bank: same widths as tax cols 1–5 and 6–7 so bank border lines up with SGST Rate|Amount. */
-function footerSplitColgroup() {
-  return `<colgroup><col style="width:${pctOf7(5)}" /><col style="width:${pctOf7(2)}" /></colgroup>`;
+/** Nested GST tax table (full width of parent cell): 72px HSN/SAC; 256px taxable; CGST/SGST equal pairs; sum 656px. */
+function taxTableColgroup7() {
+  return `<colgroup>
+    <col class="inv-tax-col-hsn" style="width:72px" />
+    <col class="inv-tax-col-taxable" style="width:256px" />
+    <col style="width:62px" />
+    <col style="width:62px" />
+    <col style="width:54px" />
+    <col style="width:54px" />
+    <col style="width:96px" />
+  </colgroup>`;
 }
 
 /** Receivable balance line: positive = Dr (due), negative = Cr (advance / credit). */
@@ -198,38 +209,38 @@ function partyPhoneContactRow(p) {
   const phone = nz(p.phone);
   const contact = nz(p.contactExtra);
   if (!phone && !contact) return "";
-  if (phone && contact) return kvRow("Phone", `${phone}, ${contact}`);
-  if (phone) return kvRow("Phone No", phone);
-  return kvRow("Contact", contact);
+  if (phone && contact) return kvDiv("Phone", `${phone}, ${contact}`);
+  if (phone) return kvDiv("Phone No", phone);
+  return kvDiv("Contact", contact);
 }
 
-function kvRow(k, v) {
+function kvDiv(k, v) {
   if (!nz(v)) return "";
-  return `<tr><td class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${escapeHtml(v)}</span></td></tr>`;
+  return `<div class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${escapeHtml(v)}</span></div>`;
 }
 
-function buildPartyTable(p) {
-  const rows = [
-    `<tr><td class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></td></tr>`,
-    `<tr><td class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</td></tr>`,
+/** Party block as stacked divs (no nested table). */
+function buildPartyStack(p) {
+  const parts = [
+    `<div class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></div>`,
+    `<div class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</div>`,
     partyPhoneContactRow(p),
-    kvRow("GSTIN/UIN", p.gstin),
-    kvRow("PAN / IT No", p.pan),
-    kvRow(
+    kvDiv("GSTIN/UIN", p.gstin),
+    kvDiv("PAN / IT No", p.pan),
+    kvDiv(
       "State Name",
       [nz(p.stateName), nz(p.stateCode) ? `Code: ${nz(p.stateCode)}` : ""].filter(Boolean).join(", ")
     ),
-    kvRow("Place of supply", p.placeOfSupply),
-    kvRow("Email", p.email),
+    kvDiv("Place of supply", p.placeOfSupply),
+    kvDiv("Email", p.email),
   ]
     .filter(Boolean)
     .join("");
-
-  return `<table class="inv-subtable inv-party-table" role="presentation"><tbody>${rows}</tbody></table>`;
+  return `<div class="inv-party-stack inv-party-table">${parts}</div>`;
 }
 
-function buildSellerTable(inv) {
-  return buildPartyTable({
+function buildSellerStack(inv) {
+  return buildPartyStack({
     name: inv.sellerName,
     address: inv.sellerAddress,
     phone: inv.sellerPhone,
@@ -243,8 +254,8 @@ function buildSellerTable(inv) {
   });
 }
 
-function buildBillToTable(inv) {
-  return buildPartyTable({
+function buildBillToStack(inv) {
+  return buildPartyStack({
     name: inv.customerName,
     address: inv.buyerAddress,
     phone: inv.buyerPhone,
@@ -258,9 +269,9 @@ function buildBillToTable(inv) {
   });
 }
 
-function buildShipToTable(inv) {
-  if (inv.consigneeSameAsBuyer !== false) return buildBillToTable(inv);
-  return buildPartyTable({
+function buildShipToStack(inv) {
+  if (inv.consigneeSameAsBuyer !== false) return buildBillToStack(inv);
+  return buildPartyStack({
     name: inv.consigneeName,
     address: inv.consigneeAddress,
     phone: nz(inv.consigneePhone) ? inv.consigneePhone : inv.buyerPhone,
@@ -274,61 +285,70 @@ function buildShipToTable(inv) {
   });
 }
 
-function metaCell(label, value) {
-  return `<td><div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || EMPTY_FIELD)}</div></td>`;
-}
-
 function metaInner(label, value) {
   return `<div class="inv-meta-label">${escapeHtml(label)}</div><div class="inv-meta-value">${escapeHtml(nz(value) || EMPTY_FIELD)}</div>`;
 }
 
-function metaCellSpan(label, value, colspan) {
-  return `<td colspan="${colspan}">${metaInner(label, value)}</td>`;
+function metaTileSpan6(label, value, spanCols) {
+  return `<div class="inv-meta-tile inv-meta-tile-span${spanCols}">${metaInner(label, value)}</div>`;
 }
 
-function buildSellerInfoGrid(inv) {
+function buildSellerInfoGridFlat(inv) {
   const dateStr = formatInvoiceDateDashed(inv.date);
   const refCombined = [nz(inv.referenceNo), nz(inv.referenceDate)].filter(Boolean).join(" dt ") || EMPTY_FIELD;
 
-  return `<table class="inv-subtable inv-meta-grid inv-meta-grid-seller" role="presentation">
-    <colgroup><col /><col /><col /><col /><col /><col /></colgroup>
-    <tbody>
-      <tr>${metaCellSpan("Invoice No.", inv.invoiceNumber || EMPTY_FIELD, 2)}${metaCellSpan("e-Way Bill No.", inv.ewayBillNo, 2)}${metaCellSpan("Dated", dateStr || EMPTY_FIELD, 2)}</tr>
-      <tr>${metaCellSpan("Delivery Note", inv.deliveryNote, 3)}${metaCellSpan("Mode / Terms of Payment", inv.paymentTerms, 3)}</tr>
-      <tr>${metaCellSpan("Reference No. & Date", refCombined, 3)}${metaCellSpan("Other References", inv.otherReferences, 3)}</tr>
-    </tbody>
-  </table>`;
+  return `<div class="inv-meta-seller-right-fill">
+    <div class="inv-meta-grid inv-meta-grid-seller inv-meta-flat inv-meta-flat-6" role="presentation">
+    ${metaTileSpan6("Invoice No.", inv.invoiceNumber || EMPTY_FIELD, 2)}
+    ${metaTileSpan6("e-Way Bill No.", inv.ewayBillNo, 2)}
+    ${metaTileSpan6("Dated", dateStr || EMPTY_FIELD, 2)}
+    ${metaTileSpan6("Delivery Note", inv.deliveryNote, 3)}
+    ${metaTileSpan6("Mode / Terms of Payment", inv.paymentTerms, 3)}
+    ${metaTileSpan6("Reference No. & Date", refCombined, 3)}
+    ${metaTileSpan6("Other References", inv.otherReferences, 3)}
+    </div>
+  </div>`;
 }
 
-function buildConsigneeInfoGrid(inv) {
+function buildConsigneeInfoGridFlat(inv) {
   const bolCombined = [nz(inv.billOfLadingNo), nz(inv.billOfLadingDate) ? `Dt ${nz(inv.billOfLadingDate)}` : ""]
     .filter(Boolean)
     .join(" ") || EMPTY_FIELD;
-  const r1 = `<tr><td>${metaInner("Buyer's Order No.", inv.buyerOrderNo)}</td><td class="inv-mid-sep" rowspan="4"></td><td>${metaInner("Dated", inv.buyerOrderDate)}</td></tr>`;
-  const r2 = `<tr><td>${metaInner("Dispatch Doc No.", inv.dispatchDocNo)}</td><td>${metaInner("Delivery Note Date", inv.deliveryNoteDate)}</td></tr>`;
-  const r3 = `<tr><td>${metaInner("Dispatched through", inv.dispatchedThrough)}</td><td>${metaInner("Destination", inv.destination)}</td></tr>`;
-  const r4 = `<tr><td>${metaInner("Bill of Lading/LR-RR No. & Date", bolCombined)}</td><td>${metaInner("Motor Vehicle No.", inv.motorVehicleNo)}</td></tr>`;
-  return `<table class="inv-subtable inv-meta-grid inv-meta-grid-2col" role="presentation"><colgroup><col /><col class="inv-mid-sep-col" /><col /></colgroup><tbody>${r1}${r2}${r3}${r4}</tbody></table>`;
+  /* 4 rows × 2 cols (6-column grid, span 3 + 3); wrapper fills td height like seller-right meta */
+  return `<div class="inv-meta-ship-right-fill">
+    <div class="inv-meta-grid inv-meta-flat inv-meta-flat-ship inv-meta-flat-ship-6" role="presentation">
+    ${metaTileSpan6("Buyer's Order No.", inv.buyerOrderNo, 3)}
+    ${metaTileSpan6("Dated", inv.buyerOrderDate, 3)}
+    ${metaTileSpan6("Dispatch Doc No.", inv.dispatchDocNo, 3)}
+    ${metaTileSpan6("Delivery Note Date", inv.deliveryNoteDate, 3)}
+    ${metaTileSpan6("Dispatched through", inv.dispatchedThrough, 3)}
+    ${metaTileSpan6("Destination", inv.destination, 3)}
+    ${metaTileSpan6("Bill of Lading/LR-RR No. & Date", bolCombined, 3)}
+    ${metaTileSpan6("Motor Vehicle No.", inv.motorVehicleNo, 3)}
+    </div>
+  </div>`;
 }
 
-function buildBuyerTermsOnlyGrid(inv) {
+function buildBuyerTermsOnlyFlat(inv) {
   const terms = nz(inv.termsOfDelivery);
   const termsHtml = terms ? escapeHtml(terms).replace(/\n/g, "<br />") : escapeHtml(EMPTY_FIELD);
-  return `<table class="inv-subtable inv-meta-grid inv-meta-grid-1col" role="presentation"><tbody><tr><td><div class="inv-meta-label">Terms of Delivery</div><div class="inv-meta-value">${termsHtml}</div></td></tr></tbody></table>`;
+  return `<div class="inv-meta-grid inv-meta-grid-1col inv-meta-flat inv-meta-flat-terms" role="presentation">
+    <div class="inv-meta-tile inv-meta-tile-full"><div class="inv-meta-label">Terms of Delivery</div><div class="inv-meta-value">${termsHtml}</div></div>
+  </div>`;
 }
 
-function buildItemsTable(inv) {
+function buildGoodsTbodyHtml(inv) {
   const items = inv.items || [];
   let totalQty = 0;
   let perUnit = "Kgs";
 
-  const bodies = items.length
-    ? `<tbody>${items
+  const itemRows = items.length
+    ? items
         .map((it, i) => {
           const qty = Number(it.quantity) || 0;
           totalQty += qty;
           if (nz(it.per)) perUnit = String(it.per).trim();
-          return `<tr>
+          return `<tr class="inv-item-line">
   <td class="c-num inv-cell-c">${i + 1}</td>
   <td class="c-desc">
     <div class="inv-desc-product"><strong>${escapeHtml(it.name)}</strong></div>
@@ -340,8 +360,8 @@ function buildItemsTable(inv) {
   <td class="num"><strong>${formatMoney(it.amount)}</strong></td>
 </tr>`;
         })
-        .join("")}</tbody>`
-    : `<tbody><tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr></tbody>`;
+        .join("")
+    : `<tr class="inv-item-line inv-item-empty"><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`;
 
   const qtyLabel = `${totalQty} ${perUnit}`.trim();
   const wordsRaw = safeAmountToWords(inv.total);
@@ -403,18 +423,7 @@ function buildItemsTable(inv) {
 </tr>`
       : "";
 
-  return `<table class="inv-subtable inv-print-table inv-items" role="presentation">
-    <colgroup>
-      <col style="width:40px" />
-      <col style="width:288px" />
-      <col style="width:66px" />
-      <col style="width:58px" />
-      <col style="width:66px" />
-      <col style="width:42px" />
-      <col style="width:96px" />
-    </colgroup>
-    <thead>
-      <tr>
+  const goodsHeadRow = `<tr class="inv-goods-head-row">
         <th class="inv-th-sl">Sl.No.</th>
         <th>Description of Goods</th>
         <th>HSN/SAC</th>
@@ -422,38 +431,31 @@ function buildItemsTable(inv) {
         <th class="num">Rate</th>
         <th>Per</th>
         <th class="num">Amount</th>
-      </tr>
-    </thead>
-    ${bodies}
-    <tfoot>
-      ${spacerRow}
-      ${goodsTaxRows}
-      <tr class="inv-goods-total-row">
+      </tr>`;
+
+  const totalRow = `<tr class="inv-goods-total-row">
         <td colspan="2" class="inv-total-label-cell"><span class="inv-ft-label inv-ft-total">Total:</span></td>
         <td class="inv-goods-filler">${EMPTY_FIELD}</td>
         <td class="num inv-cell-c"><strong>${escapeHtml(qtyLabel)}</strong></td>
         <td class="inv-goods-filler">${EMPTY_FIELD}</td>
         <td class="inv-goods-filler">${EMPTY_FIELD}</td>
         <td class="num"><strong>${formatMoney(inv.total)}</strong></td>
-      </tr>
-      <tr>
-        <td colspan="7" class="inv-words-balance-wrap">
-          <table class="inv-subtable inv-words-balance-split" role="presentation">
-            <colgroup>
-              <col style="width:70%" />
-              <col style="width:30%" />
-            </colgroup>
-            <tbody>
-              <tr>
-                <td class="inv-words-cell inv-words-cell-70"><div class="inv-chargeable-in-words"><span class="inv-words-label">Amount chargeable (in words):</span><br /><strong class="inv-words-amount">${escapeHtml(wordsDisplay)}</strong></div></td>
-                <td class="inv-balance-cell inv-balance-cell-30">${balances || "&nbsp;"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </td>
-      </tr>
-    </tfoot>
-  </table>`;
+      </tr>`;
+
+  /* 4 + 3 cols: narrower words band, wider balance (Rate+Per+Amount) so Prev./Current balance stay one line */
+  const wordsBalanceRow = `<tr class="inv-words-balance-row">
+        <td colspan="4" class="inv-words-cell"><div class="inv-chargeable-in-words"><span class="inv-words-label">Amount chargeable (in words):</span><br /><strong class="inv-words-amount">${escapeHtml(wordsDisplay)}</strong></div></td>
+        <td colspan="3" class="inv-balance-cell">${balances || "&nbsp;"}</td>
+      </tr>`;
+
+  return `<tbody class="inv-tbody-goods inv-items">
+${goodsHeadRow}
+${itemRows}
+${spacerRow}
+${goodsTaxRows}
+${totalRow}
+${wordsBalanceRow}
+</tbody>`;
 }
 
 function hsnSummaryRows(inv) {
@@ -485,7 +487,7 @@ function hsnSummaryRows(inv) {
   return rows;
 }
 
-function buildTaxSummaryTable(inv) {
+function buildTaxTbodyHtml(inv) {
   const rows = hsnSummaryRows(inv);
   const sumTaxable = rows.reduce((a, r) => a + r.taxable, 0);
   const sumCgst = rows.reduce((a, r) => a + r.cgstAmt, 0);
@@ -494,7 +496,7 @@ function buildTaxSummaryTable(inv) {
 
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`
+      ? `<tr class="inv-tax-hsn-row"><td colspan="7" class="num">${EMPTY_FIELD}</td></tr>`
       : rows
           .map(
             (r) => `<tr class="inv-tax-hsn-row">
@@ -509,26 +511,21 @@ function buildTaxSummaryTable(inv) {
           )
           .join("");
 
-  return `<table class="inv-subtable inv-print-table inv-tax-summary" role="presentation">
-${taxSummaryColgroup()}
-<thead>
-  <tr>
+  const headRows = `<tr class="inv-tax-head inv-tax-head-r1">
     <th rowspan="2">HSN/SAC</th>
     <th rowspan="2" class="num inv-tax-th-stacked">Taxable<br />Value</th>
     <th colspan="2" class="num">CGST</th>
     <th colspan="2" class="num">SGST/UTGST</th>
     <th rowspan="2" class="num inv-tax-th-stacked">Total<br />Tax Amount</th>
   </tr>
-  <tr>
+  <tr class="inv-tax-head inv-tax-head-r2">
     <th class="num">Rate</th>
     <th class="num">Amount</th>
     <th class="num">Rate</th>
     <th class="num">Amount</th>
-  </tr>
-</thead>
-<tbody>${bodyRows}</tbody>
-<tfoot>
-  <tr class="inv-tax-total-row">
+  </tr>`;
+
+  const footRow = `<tr class="inv-tax-total-row">
     <td class="inv-tax-total-cell"><strong class="inv-tax-total-label">Total</strong></td>
     <td class="num"><strong>${formatMoney(sumTaxable)}</strong></td>
     <td></td>
@@ -536,9 +533,24 @@ ${taxSummaryColgroup()}
     <td></td>
     <td class="num"><strong>${formatMoney(sumSgst)}</strong></td>
     <td class="num"><strong>${formatMoney(sumTax)}</strong></td>
-  </tr>
-</tfoot>
-</table>`;
+  </tr>`;
+
+  const innerBody = `${headRows}
+${bodyRows}
+${footRow}`;
+
+  return `<tbody class="inv-tbody-tax">
+<tr class="inv-tax-embed-outer">
+<td colspan="7" class="inv-tax-embed-wrap">
+<table class="inv-tax-embed-table inv-tax-summary inv-print-table" role="presentation">
+${taxTableColgroup7()}
+<tbody>
+${innerBody}
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>`;
 }
 
 function buildDeclarationBlock(inv) {
@@ -569,7 +581,7 @@ function buildBankBlock(inv) {
 </div>`;
 }
 
-function buildSignatureTable(inv, options = {}) {
+function buildSignatureRow(inv, options = {}) {
   const subForSig = inv.sellerSubtitle ? ` ${escapeHtml(inv.sellerSubtitle)}` : "";
   const includeStamp = options.includeStamp === true;
 
@@ -579,7 +591,7 @@ function buildSignatureTable(inv, options = {}) {
       ${authLine}`;
 
   const companyCell = includeStamp
-    ? `<td class="inv-sign-company inv-sign-company--with-stamp">
+    ? `<td colspan="4" class="inv-sign-company inv-sign-company--with-stamp">
       <div class="inv-sign-company-stack">
         ${forLine}
         <div class="inv-sign-stamp-wrap" aria-hidden="true">
@@ -588,22 +600,14 @@ function buildSignatureTable(inv, options = {}) {
         ${authLine}
       </div>
     </td>`
-    : `<td class="inv-sign-company">
+    : `<td colspan="4" class="inv-sign-company">
       ${textBlock}
     </td>`;
 
-  return `<table class="inv-subtable inv-sign-table${includeStamp ? " inv-sign-table--with-stamp" : ""}" role="presentation">
-  <colgroup>
-    <col class="inv-sign-col-customer" style="width:40%" />
-    <col class="inv-sign-col-company" style="width:60%" />
-  </colgroup>
-<tbody>
-  <tr>
-    <td class="inv-sign-customer">Customer's Seal and Signature</td>
+  return `<tr class="inv-sign-row inv-sign-table${includeStamp ? " inv-sign-table--with-stamp" : ""}">
+    <td colspan="3" class="inv-sign-customer">Customer's Seal and Signature</td>
     ${companyCell}
-  </tr>
-</tbody>
-</table>`;
+  </tr>`;
 }
 
 function buildFooterNoteOutside(inv) {
@@ -615,58 +619,36 @@ function buildFooterNoteOutside(inv) {
 }
 
 function buildMainInvoiceTable(inv, options = {}) {
-  /* 50/50 matches goods table Description|HSN boundary (Sl.No + Desc = 50% of fixed col sum). */
-  const colgroup = `<colgroup>
-    <col style="width:50%" />
-    <col style="width:50%" />
-  </colgroup>`;
-
+  /* One <table>: 7 columns (Sl + Desc | HSN … Amount); party rows use colspan 2 + 5 to match the former 50/50 split. */
   return `<div class="inv-a4-sheet-frame">
-  <table class="inv-root-table inv-root-seg inv-root-seg--head" role="presentation">
-  ${colgroup}
-  <tbody>
-    <tr>
-      <td class="inv-cell-company">${buildSellerTable(inv)}</td>
-      <td class="inv-cell-invoiceinfo">${buildSellerInfoGrid(inv)}</td>
-    </tr>
-    <tr>
-      <td class="inv-cell-consignee"><div class="block-label">Consignee (ship to)</div>${buildShipToTable(inv)}</td>
-      <td class="inv-cell-consignee-info">${buildConsigneeInfoGrid(inv)}</td>
-    </tr>
-    <tr>
-      <td class="inv-cell-buyer"><div class="block-label">Buyer (bill to)</div>${buildBillToTable(inv)}</td>
-      <td class="inv-cell-buyer-info">${buildBuyerTermsOnlyGrid(inv)}</td>
-    </tr>
-  </tbody>
-  </table>
   <div class="inv-a4-sheet-grow">
-    <table class="inv-root-table inv-root-seg inv-root-seg--items" role="presentation">
-    ${colgroup}
-    <tbody>
-      <tr class="inv-root-row-items"><td colspan="2" class="inv-cell-items"><div class="inv-items-stretch">${buildItemsTable(inv)}</div></td></tr>
-    </tbody>
-    </table>
-  </div>
-  <table class="inv-root-table inv-root-seg inv-root-seg--tail" role="presentation">
-  ${colgroup}
-  <tbody>
-    <tr><td colspan="2" class="inv-cell-tax">${buildTaxSummaryTable(inv)}</td></tr>
+  <table class="inv-root-table inv-root-invoice inv-invoice-one-table inv-print-table" role="presentation">
+  ${invoiceColgroup7()}
+  <tbody class="inv-tbody-party">
     <tr>
-      <td colspan="2" class="inv-cell-footer-split">
-        <table class="inv-subtable inv-footer-split" role="presentation">
-          ${footerSplitColgroup()}
-          <tbody>
-            <tr>
-              <td class="inv-cell-declaration">${buildDeclarationBlock(inv)}</td>
-              <td class="inv-cell-bank">${buildBankBlock(inv)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </td>
+      <td colspan="2" class="inv-cell-company">${buildSellerStack(inv)}</td>
+      <td colspan="5" class="inv-cell-invoiceinfo">${buildSellerInfoGridFlat(inv)}</td>
     </tr>
-    <tr><td colspan="2" class="inv-cell-signature">${buildSignatureTable(inv, options)}</td></tr>
+    <tr>
+      <td colspan="2" class="inv-cell-consignee"><div class="block-label">Consignee (ship to)</div>${buildShipToStack(inv)}</td>
+      <td colspan="5" class="inv-cell-consignee-info">${buildConsigneeInfoGridFlat(inv)}</td>
+    </tr>
+    <tr>
+      <td colspan="2" class="inv-cell-buyer"><div class="block-label">Buyer (bill to)</div>${buildBillToStack(inv)}</td>
+      <td colspan="5" class="inv-cell-buyer-info">${buildBuyerTermsOnlyFlat(inv)}</td>
+    </tr>
+  </tbody>
+  ${buildGoodsTbodyHtml(inv)}
+  ${buildTaxTbodyHtml(inv)}
+  <tbody class="inv-tbody-footer">
+    <tr class="inv-footer-decl-bank-row">
+      <td colspan="4" class="inv-cell-declaration">${buildDeclarationBlock(inv)}</td>
+      <td colspan="3" class="inv-cell-bank">${buildBankBlock(inv)}</td>
+    </tr>
+    ${buildSignatureRow(inv, options)}
   </tbody>
   </table>
+  </div>
 </div>`;
 }
 
@@ -681,10 +663,10 @@ function buildHeaderOutside(_inv, options = {}) {
 }
 
 export function buildInvoiceHtml(inv, options = {}) {
+  /* Footer lives inside inv-a4-sheet so it stacks after the table frame and moves with the bottom border when the stamp row grows. */
   return `<div class="inv-a4-page">
   <div class="inv-a4-top-band">${buildHeaderOutside(inv, options)}</div>
-  <div class="inv-a4-sheet">${buildMainInvoiceTable(inv, options)}</div>
-  ${buildFooterNoteOutside(inv)}
+  <div class="inv-a4-sheet">${buildMainInvoiceTable(inv, options)}${buildFooterNoteOutside(inv)}</div>
 </div>`;
 }
 
