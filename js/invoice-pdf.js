@@ -561,23 +561,28 @@ function buildDeclarationBlock(inv) {
 }
 
 function buildBankBlock(inv) {
-  const rows = [
+  const rowPairs = [
     ["A/C Holder's Name", inv.accountHolderName],
     ["Bank Name", inv.bankName],
     ["A/C Number", inv.bankAccount],
     ["IFSC Code", inv.bankIfsc],
     ["Branch", inv.bankBranch],
-  ]
-    .filter(([, v]) => nz(v))
+  ].filter(([, v]) => nz(v));
+
+  const rows = rowPairs
     .map(
       ([k, v]) =>
-        `<div class="inv-bank-line"><span class="inv-bank-k">${escapeHtml(k)}</span><span class="inv-bank-colon">:</span><span class="inv-bank-v">${escapeHtml(String(v).trim())}</span></div>`
+        `<tr class="inv-bank-line"><td class="inv-bank-k">${escapeHtml(k)}</td><td class="inv-bank-colon">:</td><td class="inv-bank-v">${escapeHtml(String(v).trim())}</td></tr>`
     )
     .join("");
 
+  const bodyRows =
+    rows ||
+    `<tr class="inv-bank-line"><td class="inv-bank-empty" colspan="3">${EMPTY_FIELD}</td></tr>`;
+
   return `<div class="inv-bank-wrap">
   <div class="inv-bank-title">COMPANY'S BANK DETAILS</div>
-  ${rows || `<div class="inv-bank-line">${EMPTY_FIELD}</div>`}
+  <table class="inv-bank-kv-table" role="presentation"><tbody>${bodyRows}</tbody></table>
 </div>`;
 }
 
