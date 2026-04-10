@@ -241,6 +241,7 @@ export function computeReportAnalytics(filteredInvoices, customers, range) {
   let totalCollected = 0;
   let totalCgst = 0;
   let totalSgst = 0;
+  let totalIgst = 0;
 
   const paymentCount = { paid: 0, unpaid: 0, partial: 0 };
   const paymentAmount = { paid: 0, unpaid: 0, partial: 0 };
@@ -258,6 +259,7 @@ export function computeReportAnalytics(filteredInvoices, customers, range) {
     totalCollected += paid;
     totalCgst += round2(Number(inv.cgst) || 0);
     totalSgst += round2(Number(inv.sgst) || 0);
+    totalIgst += round2(Number(inv.igst) || 0);
 
     if (st === "paid") {
       paymentCount.paid += 1;
@@ -369,11 +371,12 @@ export function computeReportAnalytics(filteredInvoices, customers, range) {
       outstanding: round2(outstandingFromCustomers),
       totalCgst: round2(totalCgst),
       totalSgst: round2(totalSgst),
-      taxTotal: round2(totalCgst + totalSgst),
+      totalIgst: round2(totalIgst),
+      taxTotal: round2(totalCgst + totalSgst + totalIgst),
     },
     paymentCount,
     paymentAmount,
-    taxSplit: { cgst: round2(totalCgst), sgst: round2(totalSgst) },
+    taxSplit: { cgst: round2(totalCgst), sgst: round2(totalSgst), igst: round2(totalIgst) },
     series: { labels: seriesLabels, revenue: seriesData, bucketMode: mode },
     topCustomers,
     paymentMethods,

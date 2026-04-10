@@ -1014,6 +1014,28 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.inv-supply-type-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.inv-supply-type-fieldset legend {
+  padding: 0 0.35rem;
+}
+
+.inv-supply-type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.inv-supply-option {
+  font-weight: 400;
+}
+
 .form-block label {
   display: block;
   margin-bottom: 0.75rem;

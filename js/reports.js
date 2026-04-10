@@ -75,6 +75,27 @@ function csvEscape(v) {
   return s;
 }
 
+/** Omit zero GST slices in pie charts (same idea as dashboard). */
+function filterGstPieSlicesReport(tax) {
+  const labels = ["CGST", "SGST", "IGST"];
+  const vals = [tax.cgst, tax.sgst, tax.igst ?? 0];
+  const colors = [PALETTE[0], PALETTE[3], PALETTE[2]];
+  const l = [];
+  const v = [];
+  const c = [];
+  for (let i = 0; i < vals.length; i++) {
+    if (round2(Number(vals[i]) || 0) > 0) {
+      l.push(labels[i]);
+      v.push(vals[i]);
+      c.push(colors[i]);
+    }
+  }
+  if (v.length === 0) {
+    return { labels: ["No GST"], data: [1], colors: ["#e5e7eb"] };
+  }
+  return { labels: l, data: v, colors: c };
+}
+
 function sumInvoiceDue(rows) {
   let t = 0;
   for (const inv of rows) {
@@ -263,7 +284,7 @@ async function renderReportBody(invoices, customers, settings) {
         <span class="report-kpi-value">${escapeHtml(fmtInr(k.avgInvoice))}</span>
       </div>
       <div class="report-kpi">
-        <span class="report-kpi-label">GST (CGST+SGST)</span>
+        <span class="report-kpi-label">GST (CGST+SGST+IGST)</span>
         <span class="report-kpi-value">${escapeHtml(fmtInr(k.taxTotal))}</span>
       </div>
       <div class="report-kpi">
@@ -479,14 +500,15 @@ async function renderReportBody(invoices, customers, settings) {
   }
 
   if (cTax && Chart) {
+    const pieT = filterGstPieSlicesReport(a.taxSplit);
     const ch = new Chart(cTax, {
       type: "pie",
       data: {
-        labels: ["CGST", "SGST"],
+        labels: pieT.labels,
         datasets: [
           {
-            data: [a.taxSplit.cgst, a.taxSplit.sgst],
-            backgroundColor: [PALETTE[0], PALETTE[3]],
+            data: pieT.data,
+            backgroundColor: pieT.colors,
           },
         ],
       },
@@ -871,6 +893,7 @@ function downloadReportCsv() {
     "Payment method",
     "CGST",
     "SGST",
+    "IGST",
   ];
   const lines = [headers.map(csvEscape).join(",")];
   for (const r of rows) {
@@ -888,6 +911,7 @@ function downloadReportCsv() {
       paymentMethodLabel(r.paymentMethod),
       String(round2(Number(r.cgst) || 0)),
       String(round2(Number(r.sgst) || 0)),
+      String(round2(Number(r.igst) || 0)),
     ].map(csvEscape);
     lines.push(line.join(","));
   }

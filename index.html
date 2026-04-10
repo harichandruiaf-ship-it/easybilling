@@ -904,6 +904,24 @@
           <input type="text" id="inv-eway" maxlength="30" />
         </label>
 
+        <fieldset class="inv-supply-type-fieldset" aria-describedby="inv-supply-type-desc">
+          <legend class="h2-small">Transaction type</legend>
+          <p class="muted small" id="inv-supply-type-desc">GST treatment for this invoice.</p>
+          <div class="inv-supply-type-options">
+            <label class="check-row inv-supply-option">
+              <input type="radio" name="inv-supply-type" id="inv-supply-intra" value="intra" checked />
+              Intra-state (same state) — CGST + SGST
+            </label>
+            <label class="check-row inv-supply-option">
+              <input type="radio" name="inv-supply-type" id="inv-supply-inter" value="inter" />
+              Inter-state (different states) — IGST only
+            </label>
+          </div>
+          <p class="muted small hidden" id="inv-inter-eway-hint">
+            Inter-state supplies of goods may require an e-way bill when above threshold; enter it under Other if applicable.
+          </p>
+        </fieldset>
+
         <h2 class="h2-small">Items</h2>
         <div class="table-wrap">
           <table class="items-table" id="items-table">
@@ -925,8 +943,13 @@
 
         <div class="totals-box" id="totals-preview">
           <div class="totals-row"><span>Taxable value (subtotal)</span><span id="tot-sub">0.00</span></div>
-          <div class="totals-row"><span id="tot-cgst-label">CGST</span><span id="tot-cgst">0.00</span></div>
-          <div class="totals-row"><span id="tot-sgst-label">SGST</span><span id="tot-sgst">0.00</span></div>
+          <div id="totals-breakdown-intra">
+            <div class="totals-row"><span id="tot-cgst-label">CGST</span><span id="tot-cgst">0.00</span></div>
+            <div class="totals-row"><span id="tot-sgst-label">SGST</span><span id="tot-sgst">0.00</span></div>
+          </div>
+          <div id="totals-breakdown-inter" class="hidden">
+            <div class="totals-row"><span id="tot-igst-label">IGST</span><span id="tot-igst">0.00</span></div>
+          </div>
           <div class="totals-row strong"><span>Total</span><span id="tot-total">0.00</span></div>
         </div>
 

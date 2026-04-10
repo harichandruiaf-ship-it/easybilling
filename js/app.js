@@ -1461,6 +1461,7 @@ function setupInvoiceForm() {
   document.getElementById("btn-create-qo-hide-banner")?.addEventListener("click", hideCreateQuickOrderBanner);
 
   invoiceFormApi = initInvoiceForm({
+    isEditingInvoice: () => Boolean(editingInvoiceId),
     loadCustomer: (id) => getCustomerById(db, id),
     onPreview: async (payload) => {
       const errEl = document.getElementById("invoice-form-error");

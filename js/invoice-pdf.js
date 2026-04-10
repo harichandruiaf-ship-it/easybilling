@@ -153,11 +153,29 @@ function paymentMethodDisplay(code) {
   return m[k] || (k ? k.replace(/_/g, " ") : "");
 }
 
+function isInterStateSupply(inv) {
+  if (inv.supplyType === "inter") return true;
+  if (inv.supplyType === "intra") return false;
+  const ig = Number(inv.igst);
+  const c = Number(inv.cgst);
+  const s = Number(inv.sgst);
+  return ig > 0 && c === 0 && s === 0;
+}
+
+/** Intra: CGST+SGST %; inter: combined IGST % (stored as `igstPercent` or sum of component rates). */
 function pct(inv) {
+  if (isInterStateSupply(inv)) {
+    let ig = typeof inv.igstPercent === "number" ? inv.igstPercent : NaN;
+    if (!Number.isFinite(ig) || ig <= 0) {
+      ig = (Number(inv.cgstPercent) || 0) + (Number(inv.sgstPercent) || 0);
+    }
+    if (!(ig > 0)) return { kind: "inter", igst: null };
+    return { kind: "inter", igst: ig };
+  }
   const c = inv.cgstPercent;
   const s = inv.sgstPercent;
-  if (typeof c === "number" && typeof s === "number") return { cgst: c, sgst: s };
-  return { cgst: 2.5, sgst: 2.5 };
+  if (typeof c === "number" && typeof s === "number") return { kind: "intra", cgst: c, sgst: s };
+  return { kind: "intra", cgst: 2.5, sgst: 2.5 };
 }
 
 function nz(s) {
@@ -189,6 +207,17 @@ function taxTableColgroup7() {
     <col style="width:62px" />
     <col style="width:54px" />
     <col style="width:54px" />
+    <col style="width:96px" />
+  </colgroup>`;
+}
+
+/** Inter-state IGST summary: HSN | taxable | IGST rate | IGST amt | total tax — sum 656px. */
+function taxTableColgroup5Igst() {
+  return `<colgroup>
+    <col class="inv-tax-col-hsn" style="width:72px" />
+    <col class="inv-tax-col-taxable" style="width:256px" />
+    <col style="width:116px" />
+    <col style="width:116px" />
     <col style="width:96px" />
   </colgroup>`;
 }
@@ -398,22 +427,40 @@ function buildGoodsTbodyHtml(inv) {
     typeof inv.subtotal === "number" && !Number.isNaN(inv.subtotal)
       ? roundOffRupee(round2(inv.subtotal))
       : sumAmounts;
-  const cgstAll =
-    typeof inv.cgst === "number" && !Number.isNaN(inv.cgst)
-      ? roundOffRupee(round2(inv.cgst))
-      : roundOffRupee(round2(taxableSum * (rates.cgst / 100)));
-  const sgstAll =
-    typeof inv.sgst === "number" && !Number.isNaN(inv.sgst)
-      ? roundOffRupee(round2(inv.sgst))
-      : roundOffRupee(round2(taxableSum * (rates.sgst / 100)));
   const spacerRow =
     items.length > 0
       ? `<tr class="inv-goods-spacer-row">${Array.from({ length: 7 }, () => `<td class="inv-goods-spacer-cell">${EMPTY_FIELD}</td>`).join("")}</tr>`
       : "";
 
-  const goodsTaxRows =
-    items.length > 0
-      ? `<tr class="inv-goods-tax-agg">
+  let goodsTaxRows = "";
+  if (items.length > 0) {
+    if (rates.kind === "inter") {
+      const igstAll =
+        typeof inv.igst === "number" && !Number.isNaN(inv.igst)
+          ? roundOffRupee(round2(inv.igst))
+          : rates.igst != null && rates.igst > 0
+            ? roundOffRupee(round2(taxableSum * (rates.igst / 100)))
+            : 0;
+      const igstPctLabel = rates.igst == null ? "—" : `${rates.igst}%`;
+      goodsTaxRows = `<tr class="inv-goods-tax-agg">
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="c-desc inv-goods-tax-desc"><span class="inv-tax-line">IGST @ ${igstPctLabel}</span></td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="inv-goods-filler">${EMPTY_FIELD}</td>
+  <td class="num"><strong>${formatMoney(igstAll)}</strong></td>
+</tr>`;
+    } else {
+      const cgstAll =
+        typeof inv.cgst === "number" && !Number.isNaN(inv.cgst)
+          ? roundOffRupee(round2(inv.cgst))
+          : roundOffRupee(round2(taxableSum * (rates.cgst / 100)));
+      const sgstAll =
+        typeof inv.sgst === "number" && !Number.isNaN(inv.sgst)
+          ? roundOffRupee(round2(inv.sgst))
+          : roundOffRupee(round2(taxableSum * (rates.sgst / 100)));
+      goodsTaxRows = `<tr class="inv-goods-tax-agg">
   <td class="inv-goods-filler">${EMPTY_FIELD}</td>
   <td class="c-desc inv-goods-tax-desc"><span class="inv-tax-line">CGST @ ${rates.cgst}%</span></td>
   <td class="inv-goods-filler">${EMPTY_FIELD}</td>
@@ -430,8 +477,9 @@ function buildGoodsTbodyHtml(inv) {
   <td class="inv-goods-filler">${EMPTY_FIELD}</td>
   <td class="inv-goods-filler">${EMPTY_FIELD}</td>
   <td class="num"><strong>${formatMoney(sgstAll)}</strong></td>
-</tr>`
-      : "";
+</tr>`;
+    }
+  }
 
   const goodsHeadRow = `<tr class="inv-goods-head-row">
         <th class="inv-th-sl">Sl.No.</th>
@@ -482,22 +530,41 @@ function hsnSummaryRows(inv) {
   const rows = [];
   for (const [, row] of map) {
     const tv = row.taxable;
-    const cgstAmt = roundOffRupee(round2(tv * (rates.cgst / 100)));
-    const sgstAmt = roundOffRupee(round2(tv * (rates.sgst / 100)));
-    rows.push({
-      hsn: row.hsn,
-      taxable: tv,
-      cgstRate: rates.cgst,
-      cgstAmt,
-      sgstRate: rates.sgst,
-      sgstAmt,
-      taxTot: cgstAmt + sgstAmt,
-    });
+    if (rates.kind === "inter") {
+      const igstR = rates.igst != null && rates.igst > 0 ? rates.igst / 100 : 0;
+      const igstAmt = roundOffRupee(round2(tv * igstR));
+      rows.push({
+        kind: "inter",
+        hsn: row.hsn,
+        taxable: tv,
+        igstRate: rates.igst,
+        igstAmt,
+        taxTot: igstAmt,
+      });
+    } else {
+      const cgstAmt = roundOffRupee(round2(tv * (rates.cgst / 100)));
+      const sgstAmt = roundOffRupee(round2(tv * (rates.sgst / 100)));
+      rows.push({
+        kind: "intra",
+        hsn: row.hsn,
+        taxable: tv,
+        cgstRate: rates.cgst,
+        cgstAmt,
+        sgstRate: rates.sgst,
+        sgstAmt,
+        taxTot: cgstAmt + sgstAmt,
+      });
+    }
   }
   return rows;
 }
 
 function buildTaxTbodyHtml(inv) {
+  if (isInterStateSupply(inv)) return buildTaxTbodyHtmlInter(inv);
+  return buildTaxTbodyHtmlIntra(inv);
+}
+
+function buildTaxTbodyHtmlIntra(inv) {
   const rows = hsnSummaryRows(inv);
   const sumTaxable = rows.reduce((a, r) => a + r.taxable, 0);
   const sumCgst = rows.reduce((a, r) => a + r.cgstAmt, 0);
@@ -554,6 +621,66 @@ ${footRow}`;
 <td colspan="7" class="inv-tax-embed-wrap">
 <table class="inv-tax-embed-table inv-tax-summary inv-print-table" role="presentation">
 ${taxTableColgroup7()}
+<tbody>
+${innerBody}
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>`;
+}
+
+function buildTaxTbodyHtmlInter(inv) {
+  const rows = hsnSummaryRows(inv);
+  const sumTaxable = rows.reduce((a, r) => a + r.taxable, 0);
+  const sumIgst = rows.reduce((a, r) => a + r.igstAmt, 0);
+  const sumTax = rows.reduce((a, r) => a + r.taxTot, 0);
+
+  const bodyRows =
+    rows.length === 0
+      ? `<tr class="inv-tax-hsn-row"><td colspan="5" class="num">${EMPTY_FIELD}</td></tr>`
+      : rows
+          .map(
+            (r) => `<tr class="inv-tax-hsn-row">
+<td class="inv-tax-hsn-cell">${escapeHtml(r.hsn)}</td>
+<td class="num"><strong>${formatMoney(r.taxable)}</strong></td>
+<td class="num"><strong>${
+              r.igstRate != null && r.igstRate > 0 ? `${escapeHtml(String(r.igstRate))}%` : EMPTY_FIELD
+            }</strong></td>
+<td class="num"><strong>${formatMoney(r.igstAmt)}</strong></td>
+<td class="num"><strong>${formatMoney(r.taxTot)}</strong></td>
+</tr>`
+          )
+          .join("");
+
+  const headRows = `<tr class="inv-tax-head inv-tax-head-r1">
+    <th rowspan="2">HSN/SAC</th>
+    <th rowspan="2" class="num inv-tax-th-stacked">Taxable<br />Value</th>
+    <th colspan="2" class="num">IGST</th>
+    <th rowspan="2" class="num inv-tax-th-stacked">Total<br />Tax Amount</th>
+  </tr>
+  <tr class="inv-tax-head inv-tax-head-r2">
+    <th class="num">Rate</th>
+    <th class="num">Amount</th>
+  </tr>`;
+
+  const footRow = `<tr class="inv-tax-total-row">
+    <td class="inv-tax-total-cell"><strong class="inv-tax-total-label">Total</strong></td>
+    <td class="num"><strong>${formatMoney(sumTaxable)}</strong></td>
+    <td></td>
+    <td class="num"><strong>${formatMoney(sumIgst)}</strong></td>
+    <td class="num"><strong>${formatMoney(sumTax)}</strong></td>
+  </tr>`;
+
+  const innerBody = `${headRows}
+${bodyRows}
+${footRow}`;
+
+  return `<tbody class="inv-tbody-tax">
+<tr class="inv-tax-embed-outer">
+<td colspan="7" class="inv-tax-embed-wrap">
+<table class="inv-tax-embed-table inv-tax-summary inv-tax-summary--igst inv-print-table" role="presentation">
+${taxTableColgroup5Igst()}
 <tbody>
 ${innerBody}
 </tbody>

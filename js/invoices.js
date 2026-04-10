@@ -11,33 +11,9 @@ import {
   Timestamp,
 } from "firebase/firestore";
 
-/**
- * Round to nearest whole rupee: fractional part &lt; 0.5 → floor, &gt; 0.5 → ceil;
- * exactly 0.5 rounds up (half-up).
- */
-export function roundOffRupee(n) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  const a = Math.abs(x);
-  const intPart = Math.floor(a);
-  const frac = a - intPart;
-  const rounded = frac < 0.5 ? intPart : intPart + 1;
-  return x < 0 ? -rounded : rounded;
-}
+import { round2, roundOffRupee } from "./invoice-math.js";
 
-export function computeTotals(subtotal, cgstPercent, sgstPercent) {
-  const s = roundOffRupee(round2(subtotal));
-  const cgstR = (Number(cgstPercent) || 0) / 100;
-  const sgstR = (Number(sgstPercent) || 0) / 100;
-  const cgst = roundOffRupee(round2(s * cgstR));
-  const sgst = roundOffRupee(round2(s * sgstR));
-  const total = s + cgst + sgst;
-  return { subtotal: s, cgst, sgst, total, cgstPercent: Number(cgstPercent) || 0, sgstPercent: Number(sgstPercent) || 0 };
-}
-
-export function round2(n) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}
+export { round2, roundOffRupee, computeTotals, computeTotalsInterState } from "./invoice-math.js";
 
 /** Ensures we can read/update this customer doc. Lets Firestore permission-denied propagate (so the UI can offer delete-only). */
 async function assertCustomerAccessibleForOwner(db, uid, customerId) {
@@ -213,10 +189,13 @@ function invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap) 
     jurisdictionFooter: payload.jurisdictionFooter || "",
     cgstPercent: payload.cgstPercent,
     sgstPercent: payload.sgstPercent,
+    supplyType: payload.supplyType === "inter" ? "inter" : "intra",
+    igstPercent: typeof payload.igstPercent === "number" && !Number.isNaN(payload.igstPercent) ? payload.igstPercent : 0,
     items: payload.items,
     subtotal: payload.subtotal,
     cgst: payload.cgst,
     sgst: payload.sgst,
+    igst: typeof payload.igst === "number" && !Number.isNaN(payload.igst) ? payload.igst : 0,
     total: payload.total,
   };
 }
@@ -605,6 +584,60 @@ export async function deleteInvoice(db, uid, invoiceId) {
   });
 }
 
+/** Months of invoice history included in dashboard analytics (reduces Firestore read size). History / reports use full list or range queries. */
+export const DASHBOARD_INVOICE_LOOKBACK_MONTHS = 36;
+
+export function defaultDashboardInvoiceSinceDate() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - DASHBOARD_INVOICE_LOOKBACK_MONTHS);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Maps a Firestore invoice document to the list row shape (history, dashboard, customers). */
+export function mapInvoiceDocSnapshot(d) {
+  const x = d.data();
+  const items = Array.isArray(x.items) ? x.items : [];
+  const hsnBlob = items
+    .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
+    .join(" ");
+  return {
+    id: d.id,
+    invoiceNumber: x.invoiceNumber || "",
+    customerName: x.customerName || "",
+    consigneeName: x.consigneeName || "",
+    total: typeof x.total === "number" && !Number.isNaN(x.total) ? x.total : 0,
+    subtotal: typeof x.subtotal === "number" && !Number.isNaN(x.subtotal) ? x.subtotal : 0,
+    cgst: typeof x.cgst === "number" && !Number.isNaN(x.cgst) ? x.cgst : 0,
+    sgst: typeof x.sgst === "number" && !Number.isNaN(x.sgst) ? x.sgst : 0,
+    igst: typeof x.igst === "number" && !Number.isNaN(x.igst) ? x.igst : 0,
+    amountPaidOnInvoice:
+      typeof x.amountPaidOnInvoice === "number" && !Number.isNaN(x.amountPaidOnInvoice)
+        ? x.amountPaidOnInvoice
+        : 0,
+    date: x.date,
+    buyerGstin: x.buyerGstin || "",
+    buyerPan: x.buyerPan || "",
+    placeOfSupply: x.placeOfSupply || "",
+    buyerAddress: x.buyerAddress || "",
+    destination: x.destination || "",
+    dispatchedThrough: x.dispatchedThrough || "",
+    motorVehicleNo: x.motorVehicleNo || "",
+    ewayBillNo: x.ewayBillNo || "",
+    billOfLadingNo: x.billOfLadingNo || "",
+    sellerGstin: x.sellerGstin || "",
+    sellerPan: x.sellerPan || "",
+    referenceNo: x.referenceNo || "",
+    deliveryNote: x.deliveryNote || "",
+    paymentTerms: x.paymentTerms || "",
+    hsnSearchBlob: hsnBlob,
+    paymentStatus: x.paymentStatus || "",
+    paymentMethod: x.paymentMethod || "",
+    customerId: x.customerId || "",
+    supplyType: x.supplyType || "",
+  };
+}
+
 /** One row for history list + client-side filters (all fields optional for filtering). */
 export async function listInvoicesForUser(db, uid) {
   const q = query(
@@ -613,46 +646,23 @@ export async function listInvoicesForUser(db, uid) {
     orderBy("date", "desc")
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => {
-    const x = d.data();
-    const items = Array.isArray(x.items) ? x.items : [];
-    const hsnBlob = items
-      .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
-      .join(" ");
-    return {
-      id: d.id,
-      invoiceNumber: x.invoiceNumber || "",
-      customerName: x.customerName || "",
-      consigneeName: x.consigneeName || "",
-      total: typeof x.total === "number" && !Number.isNaN(x.total) ? x.total : 0,
-      subtotal: typeof x.subtotal === "number" && !Number.isNaN(x.subtotal) ? x.subtotal : 0,
-      cgst: typeof x.cgst === "number" && !Number.isNaN(x.cgst) ? x.cgst : 0,
-      sgst: typeof x.sgst === "number" && !Number.isNaN(x.sgst) ? x.sgst : 0,
-      amountPaidOnInvoice:
-        typeof x.amountPaidOnInvoice === "number" && !Number.isNaN(x.amountPaidOnInvoice)
-          ? x.amountPaidOnInvoice
-          : 0,
-      date: x.date,
-      buyerGstin: x.buyerGstin || "",
-      buyerPan: x.buyerPan || "",
-      placeOfSupply: x.placeOfSupply || "",
-      buyerAddress: x.buyerAddress || "",
-      destination: x.destination || "",
-      dispatchedThrough: x.dispatchedThrough || "",
-      motorVehicleNo: x.motorVehicleNo || "",
-      ewayBillNo: x.ewayBillNo || "",
-      billOfLadingNo: x.billOfLadingNo || "",
-      sellerGstin: x.sellerGstin || "",
-      sellerPan: x.sellerPan || "",
-      referenceNo: x.referenceNo || "",
-      deliveryNote: x.deliveryNote || "",
-      paymentTerms: x.paymentTerms || "",
-      hsnSearchBlob: hsnBlob,
-      paymentStatus: x.paymentStatus || "",
-      paymentMethod: x.paymentMethod || "",
-      customerId: x.customerId || "",
-    };
-  });
+  return snap.docs.map(mapInvoiceDocSnapshot);
+}
+
+/**
+ * Invoices with `date` on or after `sinceDate` (dashboard KPIs / charts). Uses composite index userId + date.
+ * Customer **outstanding** in `computeAnalytics` still uses full `customers` collection.
+ */
+export async function listInvoicesForUserSince(db, uid, sinceDate) {
+  const since = sinceDate instanceof Date ? sinceDate : new Date(sinceDate);
+  const q = query(
+    collection(db, "invoices"),
+    where("userId", "==", uid),
+    where("date", ">=", Timestamp.fromDate(since)),
+    orderBy("date", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(mapInvoiceDocSnapshot);
 }
 
 export async function getInvoiceById(db, id) {

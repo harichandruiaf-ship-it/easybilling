@@ -1,4 +1,4 @@
-import { computeTotals, round2, roundOffRupee } from "./invoices.js";
+import { computeTotals, computeTotalsInterState, round2, roundOffRupee } from "./invoices.js";
 import { withLoading } from "./loading.js";
 import { showValidationToast } from "./toast.js";
 
@@ -176,6 +176,9 @@ export function initInvoiceForm(opts) {
   let taxRates = { cgstPercent: 2.5, sgstPercent: 2.5 };
   let customerList = [];
   let formPreviewBusy = false;
+  /** Baseline intra/inter when editing an existing invoice (for confirm before changing GST mode). */
+  let baselineSupplyForEdit = "intra";
+  const isEditingInvoice = typeof opts.isEditingInvoice === "function" ? opts.isEditingInvoice : () => false;
 
   function closeCustomerListbox() {
     if (!listbox) return;
@@ -324,6 +327,18 @@ export function initInvoiceForm(opts) {
     });
   }
 
+  function getSupplyType() {
+    const el = document.querySelector('input[name="inv-supply-type"]:checked');
+    return el?.value === "inter" ? "inter" : "intra";
+  }
+
+  function updateTotalsBreakdownVisibility() {
+    const inter = getSupplyType() === "inter";
+    document.getElementById("totals-breakdown-intra")?.classList.toggle("hidden", inter);
+    document.getElementById("totals-breakdown-inter")?.classList.toggle("hidden", !inter);
+    document.getElementById("inv-inter-eway-hint")?.classList.toggle("hidden", !inter);
+  }
+
   function setTaxRates(cgstPercent, sgstPercent) {
     taxRates = {
       cgstPercent: Number(cgstPercent) || 0,
@@ -331,8 +346,11 @@ export function initInvoiceForm(opts) {
     };
     const cgL = document.getElementById("tot-cgst-label");
     const sgL = document.getElementById("tot-sgst-label");
+    const igL = document.getElementById("tot-igst-label");
+    const igPct = taxRates.cgstPercent + taxRates.sgstPercent;
     if (cgL) cgL.textContent = `CGST (${taxRates.cgstPercent}%)`;
     if (sgL) sgL.textContent = `SGST (${taxRates.sgstPercent}%)`;
+    if (igL) igL.textContent = `IGST (${igPct}%)`;
     recalcTotals();
   }
 
@@ -347,14 +365,19 @@ export function initInvoiceForm(opts) {
       sub += lineAmount(qn, rn);
     });
     sub = round2(sub);
-    const t = computeTotals(sub, taxRates.cgstPercent, taxRates.sgstPercent);
+    const t =
+      getSupplyType() === "inter"
+        ? computeTotalsInterState(sub, taxRates.cgstPercent, taxRates.sgstPercent)
+        : computeTotals(sub, taxRates.cgstPercent, taxRates.sgstPercent);
     const elSub = document.getElementById("tot-sub");
     const elCgst = document.getElementById("tot-cgst");
     const elSgst = document.getElementById("tot-sgst");
+    const elIgst = document.getElementById("tot-igst");
     const elTot = document.getElementById("tot-total");
     if (elSub) elSub.textContent = t.subtotal.toFixed(2);
     if (elCgst) elCgst.textContent = t.cgst.toFixed(2);
     if (elSgst) elSgst.textContent = t.sgst.toFixed(2);
+    if (elIgst) elIgst.textContent = (t.igst ?? 0).toFixed(2);
     if (elTot) elTot.textContent = t.total.toFixed(2);
     return t;
   }
@@ -378,6 +401,28 @@ export function initInvoiceForm(opts) {
   });
 
   document.getElementById("inv-consignee-same").addEventListener("change", toggleConsigneeField);
+
+  document.querySelectorAll('input[name="inv-supply-type"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      const now = getSupplyType();
+      if (isEditingInvoice() && now !== baselineSupplyForEdit) {
+        const ok = window.confirm(
+          "Changing between intra-state (CGST+SGST) and inter-state (IGST) recalculates tax on this invoice. Continue?"
+        );
+        if (!ok) {
+          const revert = document.querySelector(
+            `input[name="inv-supply-type"][value="${baselineSupplyForEdit}"]`
+          );
+          if (revert) revert.checked = true;
+          return;
+        }
+        baselineSupplyForEdit = now;
+      }
+      updateTotalsBreakdownVisibility();
+      recalcTotals();
+    });
+  });
+  updateTotalsBreakdownVisibility();
 
   const payStatusEl = document.getElementById("inv-payment-status");
   payStatusEl?.addEventListener("change", syncPaymentPartialUI);
@@ -435,6 +480,10 @@ export function initInvoiceForm(opts) {
     document.getElementById("inv-eway").value = "";
     const invDateEl = document.getElementById("inv-invoice-date");
     if (invDateEl) invDateEl.value = todayIsoDateLocal();
+    const intra = document.getElementById("inv-supply-intra");
+    if (intra) intra.checked = true;
+    baselineSupplyForEdit = "intra";
+    updateTotalsBreakdownVisibility();
     document.getElementById("invoice-form-error").textContent = "";
     recalcTotals();
   }
@@ -605,9 +654,12 @@ export function initInvoiceForm(opts) {
         subtotal: totals.subtotal,
         cgst: totals.cgst,
         sgst: totals.sgst,
+        igst: totals.igst ?? 0,
+        igstPercent: totals.igstPercent ?? 0,
         total: totals.total,
         cgstPercent: totals.cgstPercent,
         sgstPercent: totals.sgstPercent,
+        supplyType: totals.supplyType || "intra",
       });
       } catch (ex) {
         const msg = ex && ex.message ? String(ex.message) : "Could not open preview.";
@@ -639,6 +691,21 @@ export function initInvoiceForm(opts) {
     }
 
     setTaxRates(inv.cgstPercent, inv.sgstPercent);
+    const isInter =
+      inv.supplyType === "inter" ||
+      (inv.supplyType !== "intra" &&
+        typeof inv.igst === "number" &&
+        inv.igst > 0 &&
+        !(Number(inv.cgst) || 0) &&
+        !(Number(inv.sgst) || 0));
+    const intraEl = document.getElementById("inv-supply-intra");
+    const interEl = document.getElementById("inv-supply-inter");
+    if (intraEl && interEl) {
+      if (isInter) interEl.checked = true;
+      else intraEl.checked = true;
+    }
+    baselineSupplyForEdit = isInter ? "inter" : "intra";
+    updateTotalsBreakdownVisibility();
 
     if (customerIdHidden && customerSearchInput) {
       const cid = (inv.customerId || "").trim();

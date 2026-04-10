@@ -105,11 +105,11 @@ For `create`, `request.resource` is the new document. For `update`/`delete`, `re
 
 Click **Publish** after editing.
 
-## 7. Composite index for invoice history
+## 7. Composite index for invoice history (and dashboard)
 
-The **Invoice history** query uses `userId` **and** `date` together, so Firestore needs a **composite index**. Without it you see: *“The query requires an index”* with a long `create_composite=…` link.
+The **Invoice history** query uses `userId` **and** `date` (order). The **Dashboard** uses `userId`, `date >=` (rolling window), and `orderBy date desc` — it uses the **same composite index** on `invoices` (`userId` + `date`). Without the index you see: *“The query requires an index”* with a long `create_composite=…` link.
 
-**Fastest fix:** click the link Firebase shows in the error (or in the browser console). It opens the index editor with the right fields pre-filled — click **Create index**. Wait until status is **Enabled** (often 1–5 minutes; can be longer). Then refresh the app and open **History** again.
+**Fastest fix:** click the link Firebase shows in the error (or in the browser console). It opens the index editor with the right fields pre-filled — click **Create index**. Wait until status is **Enabled** (often 1–5 minutes; can be longer). Then refresh the app and open **History** or **Dashboard** again.
 
 **Manual path:** **Firestore → Indexes → Composite → Add index** — collection `invoices`:
 
@@ -154,7 +154,7 @@ The `--yes` flag is required so the script only runs when you mean it.
 
 ## 11. Reports module — Phase 2 (optional, not implemented in the client yet)
 
-The **Reports** screen (Phase 1) loads invoices with the existing `listInvoicesForUser` query and filters by date on the client. Phase 2 can add:
+The **Reports** screen loads invoices with `listInvoicesForUser` (full list) and filters by date on the client. The **Dashboard** uses `listInvoicesForUserSince` (default: last 36 months) to reduce reads. Phase 2 can add:
 
 - **Money / collections report:** Implement `listMoneyTransactionsForUser(db, uid, { start, end })` in [`js/payments.js`](js/payments.js) and add a **Firestore composite index** on `moneyTransactions` for `userId` + `createdAt` (range), so you can show “payments received in period” vs “invoiced” without scanning unrelated customers.
 - **Quick orders:** Include [`js/quick-orders.js`](js/quick-orders.js) counts and completion stats in the selected period for operational reporting.

@@ -1,7 +1,12 @@
 /**
  * Business dashboard: KPIs + Chart.js visualizations. Cards open a detail modal on click.
  */
-import { listInvoicesForUser, round2 } from "./invoices.js";
+import {
+  listInvoicesForUserSince,
+  defaultDashboardInvoiceSinceDate,
+  DASHBOARD_INVOICE_LOOKBACK_MONTHS,
+  round2,
+} from "./invoices.js";
 import { listCustomers } from "./customers.js";
 import { listOpenQuickOrders, getQuickOrderById, markQuickOrderDone } from "./quick-orders.js";
 import { showToast } from "./toast.js";
@@ -22,6 +27,28 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Pie chart: omit zero CGST/SGST/IGST slices so a single tax type does not show two empty wedges. */
+function filterGstPieSlices(tax, palette) {
+  const labels = ["CGST", "SGST", "IGST"];
+  const vals = [tax.cgst, tax.sgst, tax.igst ?? 0];
+  const cols = [palette[0], palette[3], palette[2]];
+  const l = [];
+  const v = [];
+  const c = [];
+  for (let i = 0; i < vals.length; i++) {
+    if (round2(Number(vals[i]) || 0) > 0) {
+      l.push(labels[i]);
+      v.push(vals[i]);
+      c.push(cols[i]);
+    }
+  }
+  if (v.length === 0) {
+    const emptyCol = palette[6] || "#e5e7eb";
+    return { labels: ["No GST in period"], data: [1], colors: [emptyCol] };
+  }
+  return { labels: l, data: v, colors: c };
 }
 
 function paymentMethodLabel(code) {
@@ -337,19 +364,20 @@ function renderChartsInRoot(root, a) {
   chartInstances.push(barTop);
 
   const tax = a.taxSplit;
+  const pieParts = filterGstPieSlices(tax, palette);
   const pieTax = new Chart(document.getElementById("chart-tax"), {
     type: "pie",
     data: {
-      labels: ["CGST", "SGST"],
+      labels: pieParts.labels,
       datasets: [
         {
-          data: [tax.cgst, tax.sgst],
-          backgroundColor: [palette[0], palette[3]],
+          data: pieParts.data,
+          backgroundColor: pieParts.colors,
           borderWidth: 0,
         },
       ],
     },
-    options: chartWithTitle("GST split (all invoices)"),
+    options: chartWithTitle(`GST split (last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} mo.)`),
   });
   chartInstances.push(pieTax);
 
@@ -387,6 +415,7 @@ function buildDetailTable(key, a) {
         <tr><td>Average invoice value</td><td class="num">${fmt(a.kpis.avgInvoice)}</td></tr>
         <tr><td>CGST total</td><td class="num">${fmt(a.kpis.totalCgst)}</td></tr>
         <tr><td>SGST total</td><td class="num">${fmt(a.kpis.totalSgst)}</td></tr>
+        <tr><td>IGST total</td><td class="num">${fmt(a.kpis.totalIgst ?? 0)}</td></tr>
       </tbody></table>`;
     case "payment-count": {
       const pc = a.paymentCount;
@@ -425,6 +454,7 @@ function buildDetailTable(key, a) {
       return `<table class="dashboard-detail-table"><thead><tr><th>Tax</th><th class="num">Amount (₹)</th></tr></thead><tbody>
         <tr><td>CGST (sum)</td><td class="num">${fmt(a.taxSplit.cgst)}</td></tr>
         <tr><td>SGST (sum)</td><td class="num">${fmt(a.taxSplit.sgst)}</td></tr>
+        <tr><td>IGST (sum)</td><td class="num">${fmt(a.taxSplit.igst ?? 0)}</td></tr>
         <tr><td><strong>Total GST</strong></td><td class="num"><strong>${fmt(a.kpis.taxTotal)}</strong></td></tr>
       </tbody></table>`;
     case "methods":
@@ -547,11 +577,12 @@ function openDashboardDetail(key) {
       },
     });
   } else if (key === "tax") {
+    const pieM = filterGstPieSlices(a.taxSplit, palette);
     modalChart = new Chart(inner, {
       type: "pie",
       data: {
-        labels: ["CGST", "SGST"],
-        datasets: [{ data: [a.taxSplit.cgst, a.taxSplit.sgst], backgroundColor: [palette[0], palette[3]] }],
+        labels: pieM.labels,
+        datasets: [{ data: pieM.data, backgroundColor: pieM.colors }],
       },
       options: { responsive: true, maintainAspectRatio: false },
     });
@@ -600,7 +631,10 @@ export async function mountDashboard(db, uid) {
   let invoices;
   let customers;
   try {
-    [invoices, customers] = await Promise.all([listInvoicesForUser(db, uid), listCustomers(db, uid)]);
+    [invoices, customers] = await Promise.all([
+      listInvoicesForUserSince(db, uid, defaultDashboardInvoiceSinceDate()),
+      listCustomers(db, uid),
+    ]);
   } catch (ex) {
     const msg =
       ex && ex.code === "permission-denied"
@@ -636,7 +670,7 @@ export async function mountDashboard(db, uid) {
 
   root.innerHTML = `${quickStrip}
     <div class="dashboard-toolbar">
-      <p class="muted dashboard-lead">GST billing overview — revenue, receivables, payment mix, and trends. Click any card or chart for the full breakdown.</p>
+      <p class="muted dashboard-lead">GST billing overview — revenue, receivables, payment mix, and trends. Click any card or chart for the full breakdown. Invoice metrics below use the last <strong>${DASHBOARD_INVOICE_LOOKBACK_MONTHS}</strong> months; customer outstanding is live from your directory. Use <a href="#/history">Invoice register</a> for the full list.</p>
       <div class="btn-row wrap">
         <a class="btn btn-primary" href="#/create">New GST invoice</a>
         <a class="btn btn-secondary" href="#/quick-orders">Quick order</a>
@@ -647,12 +681,13 @@ export async function mountDashboard(db, uid) {
     </div>
 
     <div class="dashboard-kpi-strip" data-dashboard-detail="kpis" role="button" tabindex="0" title="Click for full metrics">
-      ${buildKpiCard("Total billed", `₹ ${k.totalBilled.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Sum of all invoice totals", "")}
+      ${buildKpiCard("Total billed", `₹ ${k.totalBilled.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Invoices from the last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`, "")}
       ${buildKpiCard("Collected", `₹ ${k.totalCollected.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Recorded on invoices", "accent")}
       ${buildKpiCard("Outstanding", `₹ ${k.outstanding.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "From customer balances", "warn")}
       ${buildKpiCard("Invoices", String(k.invoiceCount), `Avg ₹ ${k.avgInvoice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "")}
-      ${buildKpiCard("CGST", `₹ ${k.totalCgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Summed from invoices", "")}
-      ${buildKpiCard("SGST", `₹ ${k.totalSgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Summed from invoices", "")}
+      ${buildKpiCard("CGST", `₹ ${k.totalCgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Same ${DASHBOARD_INVOICE_LOOKBACK_MONTHS}-month window as Total billed`, "")}
+      ${buildKpiCard("SGST", `₹ ${k.totalSgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Same ${DASHBOARD_INVOICE_LOOKBACK_MONTHS}-month window as Total billed`, "")}
+      ${buildKpiCard("IGST", `₹ ${(k.totalIgst ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Inter-state in last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`, "")}
     </div>
 
     <div id="dashboard-charts-slot" class="dashboard-charts ${empty ? "dashboard-charts--empty" : ""}">
