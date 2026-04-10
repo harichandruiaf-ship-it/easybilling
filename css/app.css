@@ -3821,28 +3821,47 @@ body.login-screen-active #app-main {
   width: 100%;
 }
 
+/* Signature row uses colspan 2+5 so seam matches colgroup: Sl+Desc 328px | HSN…Amount 328px (= 50/50 of 656px) */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-customer {
-  width: 40%;
-  height: 52px;
-  vertical-align: bottom;
   box-sizing: border-box;
   padding-right: 6px;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company {
-  width: 60%;
-  height: 52px;
   text-align: right;
-  vertical-align: bottom;
   box-sizing: border-box;
   padding-left: 6px;
   border-left: 1px solid #000;
+}
+
+/* Same fixed band for stamp and no-stamp (36mm row); labels start at top of cell */
+.gst-invoice.invoice-a4-compact.invoice-a4-single tr.inv-sign-row.inv-sign-table > td.inv-sign-customer,
+.gst-invoice.invoice-a4-compact.invoice-a4-single tr.inv-sign-row.inv-sign-table > td.inv-sign-company {
+  height: 36mm;
+  min-height: 36mm;
+  vertical-align: top;
+  box-sizing: border-box;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-auth {
   margin-top: 18px;
   padding-top: 0;
   border-top: none;
+}
+
+/* No stamp: inner flex fills the 36mm band — “For …” top, “Authorised Signatory” bottom (no flex on <td>) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 100%;
+  min-height: calc(36mm - 1px);
+  box-sizing: border-box;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-inner .inv-sign-auth {
+  margin-top: 0;
 }
 
 /* Stamp between “For …” and “Authorised Signatory”, right-aligned (reference layout). */
@@ -3858,7 +3877,7 @@ body.login-screen-active #app-main {
   align-items: flex-end;
   justify-content: space-between;
   width: 100%;
-  min-height: 32mm;
+  min-height: calc(36mm - 12px);
   box-sizing: border-box;
   padding-right: 5mm;
   text-align: right;
@@ -3895,13 +3914,6 @@ body.login-screen-active #app-main {
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp .inv-sign-auth {
   margin-top: 0;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
-  min-height: 36mm;
-  height: auto;
-  vertical-align: top;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {
@@ -5306,18 +5318,43 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-customer {
-  width: 40% !important;
-  max-width: 40% !important;
   box-sizing: border-box !important;
   padding-right: 6px !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company {
-  width: 60% !important;
-  max-width: 60% !important;
+  text-align: right !important;
   border-left: 1px solid #000 !important;
   box-sizing: border-box !important;
   padding-left: 6px !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single tr.inv-sign-row.inv-sign-table > td.inv-sign-customer,
+.gst-invoice.invoice-a4-compact.invoice-a4-single tr.inv-sign-row.inv-sign-table > td.inv-sign-company {
+  height: 36mm !important;
+  min-height: 36mm !important;
+  vertical-align: top !important;
+  box-sizing: border-box !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-inner {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  align-items: flex-end !important;
+  width: 100% !important;
+  min-height: calc(36mm - 1px) !important;
+  box-sizing: border-box !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-inner .inv-sign-auth {
+  margin-top: 0 !important;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company--with-stamp {
+  vertical-align: top !important;
+  padding-top: 4px !important;
+  padding-bottom: 6px !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-company-stack {
@@ -5326,7 +5363,7 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
   align-items: flex-end !important;
   justify-content: space-between !important;
   width: 100% !important;
-  min-height: 32mm !important;
+  min-height: calc(36mm - 12px) !important;
   box-sizing: border-box !important;
   padding-right: 5mm !important;
   text-align: right !important;
@@ -5365,13 +5402,6 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
   margin-top: 0 !important;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-customer,
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-table--with-stamp .inv-sign-company {
-  min-height: 36mm !important;
-  height: auto !important;
-  vertical-align: top !important;
-}
-
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-sign-footer {
   border-top: 1px solid #000 !important;
 }
@@ -5388,10 +5418,10 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
   text-align: center;
 }
 
-/* Beats generic .inv-outside-footer above: keeps space below table + above “Subject to…” */
+/* Beats generic .inv-outside-footer above: gap below table + above “Subject to…” */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-sheet > .inv-outside-footer {
-  margin-top: 8mm;
-  padding-top: 4mm;
+  margin-top: 4mm;
+  padding-top: 2mm;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-header {

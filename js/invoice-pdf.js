@@ -596,7 +596,7 @@ function buildSignatureRow(inv, options = {}) {
       ${authLine}`;
 
   const companyCell = includeStamp
-    ? `<td colspan="4" class="inv-sign-company inv-sign-company--with-stamp">
+    ? `<td colspan="5" class="inv-sign-company inv-sign-company--with-stamp">
       <div class="inv-sign-company-stack">
         ${forLine}
         <div class="inv-sign-stamp-wrap" aria-hidden="true">
@@ -605,12 +605,12 @@ function buildSignatureRow(inv, options = {}) {
         ${authLine}
       </div>
     </td>`
-    : `<td colspan="4" class="inv-sign-company">
-      ${textBlock}
+    : `<td colspan="5" class="inv-sign-company">
+      <div class="inv-sign-company-inner">${textBlock}</div>
     </td>`;
 
   return `<tr class="inv-sign-row inv-sign-table${includeStamp ? " inv-sign-table--with-stamp" : ""}">
-    <td colspan="3" class="inv-sign-customer">Customer's Seal and Signature</td>
+    <td colspan="2" class="inv-sign-customer">Customer's Seal and Signature</td>
     ${companyCell}
   </tr>`;
 }
