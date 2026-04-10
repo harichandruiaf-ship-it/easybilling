@@ -1273,6 +1273,19 @@ async function runRouteStep(context, fn) {
   }
 }
 
+/** Local calendar date from yyyy-mm-dd (preview “Dated” matches invoice date field). */
+function previewInvoiceDateFromPayload(p) {
+  const iso = p && p.invoiceDateIso;
+  const m = typeof iso === "string" && iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date();
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const d = new Date(y, mo, day);
+  if (d.getFullYear() === y && d.getMonth() === mo && d.getDate() === day) return d;
+  return new Date();
+}
+
 function mergeSellerIntoInvoicePayload(payload, seller) {
   return {
     ...payload,
@@ -1500,7 +1513,7 @@ function setupInvoiceForm() {
 
         const inv = {
           ...merged,
-          date: editingInvoiceSnapshot ? editingInvoiceSnapshot.date : new Date(),
+          date: editingInvoiceSnapshot ? editingInvoiceSnapshot.date : previewInvoiceDateFromPayload(merged),
           invoiceNumber: editingInvoiceSnapshot ? editingInvoiceSnapshot.invoiceNumber || "" : "",
           paymentStatus: normalizedStatus,
           paymentMethod: payload.paymentMethod || "credit_sale",

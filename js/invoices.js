@@ -11,13 +11,27 @@ import {
   Timestamp,
 } from "firebase/firestore";
 
+/**
+ * Round to nearest whole rupee: fractional part &lt; 0.5 → floor, &gt; 0.5 → ceil;
+ * exactly 0.5 rounds up (half-up).
+ */
+export function roundOffRupee(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  const a = Math.abs(x);
+  const intPart = Math.floor(a);
+  const frac = a - intPart;
+  const rounded = frac < 0.5 ? intPart : intPart + 1;
+  return x < 0 ? -rounded : rounded;
+}
+
 export function computeTotals(subtotal, cgstPercent, sgstPercent) {
-  const s = round2(subtotal);
+  const s = roundOffRupee(round2(subtotal));
   const cgstR = (Number(cgstPercent) || 0) / 100;
   const sgstR = (Number(sgstPercent) || 0) / 100;
-  const cgst = round2(s * cgstR);
-  const sgst = round2(s * sgstR);
-  const total = round2(s + cgst + sgst);
+  const cgst = roundOffRupee(round2(s * cgstR));
+  const sgst = roundOffRupee(round2(s * sgstR));
+  const total = s + cgst + sgst;
   return { subtotal: s, cgst, sgst, total, cgstPercent: Number(cgstPercent) || 0, sgstPercent: Number(sgstPercent) || 0 };
 }
 
@@ -61,10 +75,30 @@ export function normalizeAccountPeriodLabel(raw) {
   return s;
 }
 
+/**
+ * Calendar date used to pick India FY (Apr–Mar) for invoice numbering.
+ * Prefer `payload.invoiceDateIso` (yyyy-mm-dd from the form); otherwise use "now".
+ */
+export function invoiceReferenceDateFromPayload(payload) {
+  const raw = payload && payload.invoiceDateIso;
+  if (typeof raw === "string" && raw.trim()) {
+    const m = raw.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      const d = new Date(y, mo, day);
+      if (d.getFullYear() === y && d.getMonth() === mo && d.getDate() === day) {
+        return d;
+      }
+    }
+  }
+  return new Date();
+}
+
+/** FY label for sequence + suffix `n/2026-2027` — not driven by seller subtitle (that is display-only). */
 function resolveAccountPeriodForNewInvoice(payload) {
-  const fromSettings = normalizeAccountPeriodLabel(payload.sellerSubtitle);
-  if (fromSettings) return fromSettings;
-  return defaultAccountPeriodLabelFromDate();
+  return defaultAccountPeriodLabelFromDate(invoiceReferenceDateFromPayload(payload));
 }
 
 /** One sequence per account period; doc id is safe for Firestore (no `/`). */
@@ -244,7 +278,10 @@ export async function saveInvoice(db, uid, payload) {
       currentBalanceSnapshot: afterPayment,
     };
 
-    const invData = { ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap), date: serverTimestamp() };
+    const invData = {
+      ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap),
+      date: Timestamp.fromDate(invoiceReferenceDateFromPayload(payload)),
+    };
 
     transaction.set(cRef, { nextNumber: next + 1 }, { merge: true });
     transaction.set(invoiceRef, invData);

@@ -1,4 +1,4 @@
-import { computeTotals, round2 } from "./invoices.js";
+import { computeTotals, round2, roundOffRupee } from "./invoices.js";
 import { withLoading } from "./loading.js";
 import { showValidationToast } from "./toast.js";
 
@@ -18,7 +18,7 @@ export function isValidPanOptional(value) {
 }
 
 function lineAmount(qty, rate) {
-  return round2(qty * rate);
+  return roundOffRupee(round2(qty * rate));
 }
 
 function createRow(tbody, data = {}) {
@@ -123,6 +123,27 @@ function ddMmYyyyToIsoDate(s) {
   const dd = String(m[1]).padStart(2, "0");
   const mm = String(m[2]).padStart(2, "0");
   return `${m[3]}-${mm}-${dd}`;
+}
+
+function localDateToIsoDate(d) {
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayIsoDateLocal() {
+  return localDateToIsoDate(new Date());
+}
+
+function invoiceDateIsoFromInv(inv) {
+  const raw = inv && inv.date;
+  let d = null;
+  if (raw && typeof raw.toDate === "function") d = raw.toDate();
+  else if (raw instanceof Date) d = raw;
+  if (d && !Number.isNaN(d.getTime())) return localDateToIsoDate(d);
+  return todayIsoDateLocal();
 }
 
 function normKey(s) {
@@ -323,7 +344,7 @@ export function initInvoiceForm(opts) {
       const r = parseFloat(tr.querySelector(".inv-rate")?.value);
       const qn = Number.isFinite(q) ? q : 0;
       const rn = Number.isFinite(r) ? r : 0;
-      sub += qn * rn;
+      sub += lineAmount(qn, rn);
     });
     sub = round2(sub);
     const t = computeTotals(sub, taxRates.cgstPercent, taxRates.sgstPercent);
@@ -412,6 +433,8 @@ export function initInvoiceForm(opts) {
     syncPaymentPartialUI();
     setOutstandingLabel(null);
     document.getElementById("inv-eway").value = "";
+    const invDateEl = document.getElementById("inv-invoice-date");
+    if (invDateEl) invDateEl.value = todayIsoDateLocal();
     document.getElementById("invoice-form-error").textContent = "";
     recalcTotals();
   }
@@ -526,9 +549,12 @@ export function initInvoiceForm(opts) {
     }
 
     const totals = recalcTotals();
+    const invoiceDateIso =
+      document.getElementById("inv-invoice-date")?.value?.trim() || todayIsoDateLocal();
     if (opts.onPreview) {
       try {
         await opts.onPreview({
+        invoiceDateIso,
         customerName: buyerName,
         buyerAddress,
         buyerPhone,
@@ -665,6 +691,8 @@ export function initInvoiceForm(opts) {
     document.getElementById("inv-vehicle-no").value = inv.motorVehicleNo || "";
     document.getElementById("inv-terms-delivery").value = inv.termsOfDelivery || "";
     document.getElementById("inv-eway").value = inv.ewayBillNo || "";
+    const invDateEl = document.getElementById("inv-invoice-date");
+    if (invDateEl) invDateEl.value = invoiceDateIsoFromInv(inv);
 
     const paySt = document.getElementById("inv-payment-status");
     if (paySt) paySt.value = inv.paymentStatus || "unpaid";

@@ -547,10 +547,10 @@
           <input type="text" id="set-name" required maxlength="200" />
         </label>
         <label>
-          Account period (invoice numbering &amp; optional subtitle on invoice)
-          <input type="text" id="set-subtitle" maxlength="120" placeholder="e.g. 2026-2027" />
+          Subtitle (optional, printed on invoice)
+          <input type="text" id="set-subtitle" maxlength="120" placeholder="e.g. A/c 2026-2027 or tagline" />
           <span class="muted small settings-field-hint"
-            >New invoices use numbers like <strong>1/2026-2027</strong> (sequence restarts for each period). If empty, the current financial year (Apr–Mar) is used.</span>
+            >Shown below your business name. <strong>Invoice numbers</strong> use the India financial year (Apr–Mar) from the <strong>invoice date</strong> on each new invoice — the sequence restarts on 1 April (e.g. <strong>1/2026-2027</strong>, then <strong>1/2027-2028</strong>).</span>
         </label>
         <label>
           Address
@@ -697,6 +697,11 @@
           </div>
         </label>
         <p class="muted small">Preview the full invoice, then generate it to assign number, date, and save.</p>
+        <label>
+          Invoice date
+          <input type="date" id="inv-invoice-date" class="input-date" required autocomplete="off" />
+          <span class="muted small">Sets the financial year for the invoice number (India Apr–Mar). The sequence restarts on 1 April each year.</span>
+        </label>
 
         <h2 class="h2-small">Buyer (Bill to)</h2>
         <label>
@@ -940,7 +945,7 @@
             </span>
             <span class="modal-heading-text">Review GST invoice</span>
           </h2>
-          <p id="invoice-preview-hint" class="muted small invoice-preview-hint">Check all details. Invoice number and official date are assigned when you generate the invoice.</p>
+          <p id="invoice-preview-hint" class="muted small invoice-preview-hint">Check all details. The invoice date is the one you chose on the form; the invoice number is assigned when you generate (financial year Apr–Mar).</p>
           <p class="form-error" id="invoice-preview-error" role="alert"></p>
           <div id="invoice-preview-scroll" class="invoice-preview-scroll"></div>
           <div class="btn-row wrap invoice-preview-actions">

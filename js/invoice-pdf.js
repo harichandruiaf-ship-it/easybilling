@@ -1,5 +1,5 @@
 import { amountToWordsIn } from "./number-to-words-in.js";
-import { formatInvoiceDateDashed } from "./invoices.js";
+import { formatInvoiceDateDashed, round2, roundOffRupee } from "./invoices.js";
 
 /**
  * Public path fallback (e.g. tests). Prefer `resolveStampAssetUrl()` which uses `import.meta.url`
@@ -389,13 +389,23 @@ function buildGoodsTbodyHtml(inv) {
     .join("");
 
   const rates = pct(inv);
-  let taxableSum = 0;
+  let sumAmounts = 0;
   for (const it of items) {
-    taxableSum += Number(it.amount) || 0;
+    sumAmounts += Number(it.amount) || 0;
   }
-  taxableSum = Math.round((taxableSum + Number.EPSILON) * 100) / 100;
-  const cgstAll = Math.round(taxableSum * (rates.cgst / 100) * 100) / 100;
-  const sgstAll = Math.round(taxableSum * (rates.sgst / 100) * 100) / 100;
+  sumAmounts = roundOffRupee(round2(sumAmounts));
+  const taxableSum =
+    typeof inv.subtotal === "number" && !Number.isNaN(inv.subtotal)
+      ? roundOffRupee(round2(inv.subtotal))
+      : sumAmounts;
+  const cgstAll =
+    typeof inv.cgst === "number" && !Number.isNaN(inv.cgst)
+      ? roundOffRupee(round2(inv.cgst))
+      : roundOffRupee(round2(taxableSum * (rates.cgst / 100)));
+  const sgstAll =
+    typeof inv.sgst === "number" && !Number.isNaN(inv.sgst)
+      ? roundOffRupee(round2(inv.sgst))
+      : roundOffRupee(round2(taxableSum * (rates.sgst / 100)));
   const spacerRow =
     items.length > 0
       ? `<tr class="inv-goods-spacer-row">${Array.from({ length: 7 }, () => `<td class="inv-goods-spacer-cell">${EMPTY_FIELD}</td>`).join("")}</tr>`
@@ -467,13 +477,13 @@ function hsnSummaryRows(inv) {
     const taxable = Number(it.amount) || 0;
     if (!map.has(hsn)) map.set(hsn, { taxable: 0, hsn });
     const row = map.get(hsn);
-    row.taxable = Math.round((row.taxable + taxable + Number.EPSILON) * 100) / 100;
+    row.taxable = roundOffRupee(round2(row.taxable + taxable));
   }
   const rows = [];
   for (const [, row] of map) {
     const tv = row.taxable;
-    const cgstAmt = Math.round(tv * (rates.cgst / 100) * 100) / 100;
-    const sgstAmt = Math.round(tv * (rates.sgst / 100) * 100) / 100;
+    const cgstAmt = roundOffRupee(round2(tv * (rates.cgst / 100)));
+    const sgstAmt = roundOffRupee(round2(tv * (rates.sgst / 100)));
     rows.push({
       hsn: row.hsn,
       taxable: tv,
@@ -481,7 +491,7 @@ function hsnSummaryRows(inv) {
       cgstAmt,
       sgstRate: rates.sgst,
       sgstAmt,
-      taxTot: Math.round((cgstAmt + sgstAmt) * 100) / 100,
+      taxTot: cgstAmt + sgstAmt,
     });
   }
   return rows;
