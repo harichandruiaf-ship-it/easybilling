@@ -3021,7 +3021,10 @@ async function renderInvoicePage(id) {
     invoiceBreadcrumbState = "error";
     return;
   }
-  root.innerHTML = "";
+  root.replaceChildren();
+  const sheetMount = document.createElement("div");
+  sheetMount.className = "invoice-view-sheet-wrap";
+  root.appendChild(sheetMount);
   const invViewTitle = document.getElementById("invoice-view-page-title-text");
   if (invViewTitle) invViewTitle.textContent = "GST invoice";
   if (!currentUser) {
@@ -3114,7 +3117,7 @@ async function renderInvoicePage(id) {
     const includeStamp = stampChk ? stampChk.checked : false;
     const invoiceTypeLabel = getInvoiceTypeLabel();
     const newNode = renderInvoiceDocument(inv, { includeStamp, invoiceTypeLabel });
-    root.replaceChildren(newNode);
+    sheetMount.replaceChildren(newNode);
     viewNode = newNode;
   }
 

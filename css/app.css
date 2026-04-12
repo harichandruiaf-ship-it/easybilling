@@ -1975,7 +1975,7 @@ body.login-screen-active #app-main {
   margin: 0.15rem 0 0.65rem;
 }
 
-/* Invoice view: full A4 width on every screen (no shrinking); pan with bottom horizontal scrollbar */
+/* Invoice view: full A4 width; vertical scroll is the page — inner strip scrolls horizontally only */
 #view-invoice {
   height: auto;
   min-height: 0;
@@ -1998,6 +1998,10 @@ body.login-screen-active #app-main {
   max-width: none;
 }
 
+/*
+ * Outer card must not use overflow-x: auto alone — CSS forces overflow-y to auto too, which adds an
+ * inner vertical scrollbar. Horizontal pan lives on .invoice-view-sheet-wrap (JS) instead.
+ */
 #invoice-print-root.invoice-print-outer {
   height: auto;
   min-height: 0;
@@ -2007,10 +2011,17 @@ body.login-screen-active #app-main {
   padding-bottom: 0;
   padding-left: 0.85rem;
   padding-right: 0.85rem;
-  /* Bottom horizontal scrollbar when viewport is narrower than the invoice */
+  overflow: visible;
+}
+
+/* Narrow viewports: horizontal scrollbar only; height follows invoice (overflow-y: hidden + auto height = no inner vertical bar) */
+#view-invoice .invoice-view-sheet-wrap {
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: hidden;
+  min-height: 0;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(26, 95, 74, 0.55) rgba(0, 0, 0, 0.08);
 }
 
 .invoice-print-outer {
@@ -2024,29 +2035,24 @@ body.login-screen-active #app-main {
   overflow-y: visible;
 }
 
-/* Invoice view screen: scrollbar styling (horizontal bar at bottom of preview card) */
-#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar {
+/* Invoice view screen: scrollbar styling on the horizontal strip (bottom of preview card) */
+#view-invoice .invoice-view-sheet-wrap::-webkit-scrollbar {
   height: 12px;
   width: 12px;
 }
 
-#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-track {
+#view-invoice .invoice-view-sheet-wrap::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.07);
   border-radius: 6px;
 }
 
-#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-thumb {
+#view-invoice .invoice-view-sheet-wrap::-webkit-scrollbar-thumb {
   background: rgba(26, 95, 74, 0.45);
   border-radius: 6px;
 }
 
-#view-invoice #invoice-print-root.invoice-print-outer::-webkit-scrollbar-thumb:hover {
+#view-invoice .invoice-view-sheet-wrap::-webkit-scrollbar-thumb:hover {
   background: rgba(26, 95, 74, 0.65);
-}
-
-#view-invoice #invoice-print-root.invoice-print-outer {
-  scrollbar-width: auto;
-  scrollbar-color: rgba(26, 95, 74, 0.55) rgba(0, 0, 0, 0.08);
 }
 
 .invoice-doc {
@@ -2481,12 +2487,22 @@ body.login-screen-active #app-main {
     page-break-inside: avoid;
   }
 }
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tbody-goods .inv-chargeable-in-words .inv-words-amount {
+  font-size: 12px !important; 
+}
 
 /* Single A4 compact invoice — one parent table (inv-root-table), nested tables only; no flex/grid */
 .gst-invoice.invoice-a4-compact.invoice-a4-single {
   --inv-ink: #000;
   --inv-meta-grid-line: #000;
   --inv-tally-blue: #000;
+  /* Section bumps vs end-of-file 10px lock — tune here */
+  --inv-fs-party: 10.5px;
+  --inv-fs-goods: 11px;
+  --inv-fs-tax: 11px;
+  --inv-fs-declaration: 12px;
+  /* “INR … RUPEES ONLY” line — larger than surrounding body text */
+  --inv-fs-words-amount: 14px;
   font-size: 10px;
   line-height: 1.2;
   font-family: "Times New Roman", Times, "Liberation Serif", "Noto Serif", serif;
@@ -2506,6 +2522,11 @@ body.login-screen-active #app-main {
   table-layout: fixed;
   border: 1px solid #000;
   background: #fff;
+}
+
+/* Seller, invoice meta, ship-to, buyer rows — slightly larger than base (overrides flat 10px lock at EOF) */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tbody-party *:not(svg):not(canvas) {
+  font-size: var(--inv-fs-party) !important;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table > tbody > tr > td,
@@ -3620,6 +3641,11 @@ body.login-screen-active #app-main {
   font-weight: 700;
 }
 
+/* HSN / CGST–SGST summary block — slightly larger type */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tbody-tax *:not(svg):not(canvas) {
+  font-size: var(--inv-fs-tax) !important;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-chargeable-in-words {
   text-align: left;
 }
@@ -3664,6 +3690,11 @@ body.login-screen-active #app-main {
 .gst-invoice.invoice-a4-compact.invoice-a4-single .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Line items, heads, totals, amount-in-words row — slightly larger type */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tbody-goods *:not(svg):not(canvas) {
+  font-size: var(--inv-fs-goods) !important;
 }
 
 /* Goods line items: Sl, HSN, Qty, Rate, Per centered; Description left; Amount stays .num right */
@@ -3795,6 +3826,11 @@ body.login-screen-active #app-main {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* Declaration cell (terms + amount in words) — slightly larger type */
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-cell-declaration *:not(svg):not(canvas) {
+  font-size: var(--inv-fs-declaration) !important;
 }
 
 /* Declaration + Bank: single row, 4 | 3 columns (vertical seam between declaration and bank) */
@@ -4394,6 +4430,10 @@ body.login-screen-active #app-main {
     overflow: visible !important;
   }
 
+  #invoice-print-root .invoice-view-sheet-wrap {
+    overflow: visible !important;
+  }
+
   /* Avoid stray focus rings in the print preview canvas */
   #invoice-print-root *:focus {
     outline: none !important;
@@ -4530,6 +4570,10 @@ html.invoice-pdf-emulate-print #invoice-print-root {
   border: none;
   box-shadow: none;
   padding: 0;
+  overflow: visible !important;
+}
+
+html.invoice-pdf-emulate-print #invoice-print-root .invoice-view-sheet-wrap {
   overflow: visible !important;
 }
 
@@ -6200,8 +6244,9 @@ html.report-pdf-capture body {
 }
 
 /*
- * Compact GST invoice: one body size (10px) for seller/buyer/ship, meta, goods, tax,
+ * Compact GST invoice: default body (10px) for seller/buyer/ship, meta, goods, tax,
  * declaration, bank, signatory, jurisdiction — overrides legacy .invoice-a4-single pt/rem rules.
+ * Party / goods / tax / declaration use --inv-fs-*; amount-in-words value uses --inv-fs-words-amount (.inv-words-amount).
  */
 .gst-invoice.invoice-a4-compact.invoice-a4-single,
 .gst-invoice.invoice-a4-compact.invoice-a4-single *:not(svg):not(canvas) {
