@@ -204,6 +204,15 @@ body.app-loading-active {
   color: inherit;
 }
 
+.settings-dev-reset-wrap {
+  border: 1px dashed var(--danger, #b42318);
+  background: color-mix(in srgb, var(--danger, #b42318) 6%, var(--surface));
+}
+
+.settings-dev-reset-wrap code {
+  font-size: 0.85em;
+}
+
 .settings-hard-refresh-wrap {
   margin-top: 1.25rem;
 }
@@ -496,6 +505,346 @@ body.app-loading-active {
   border-left-color: #6b7a76;
   background: rgba(107, 122, 118, 0.08);
   color: #1a211e;
+}
+
+.pay-tx-list li.pay-tx--revoked {
+  opacity: 0.75;
+  border-left-color: #6b7280;
+  background: rgba(107, 114, 128, 0.12);
+  text-decoration: line-through;
+}
+
+.pay-tx-list li.pay-tx--revoked .pay-tx-card,
+.pay-tx-list li.pay-tx--revoked .pay-tx-meta,
+.pay-tx-list li.pay-tx--revoked .pay-tx-alloc-table,
+.pay-tx-list li.pay-tx--revoked .pay-tx-actions,
+.pay-tx-list li.pay-tx--revoked .pay-tx-alloc {
+  text-decoration: none;
+}
+
+.pay-tx-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(10, 77, 46, 0.2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Standalone payment — card + allocation table */
+.pay-tx-list li.pay-tx--standalone {
+  padding: 0.65rem 0.75rem 0.75rem;
+  margin-bottom: 0.6rem;
+  border-bottom: none;
+  border-radius: var(--radius);
+  border: 1px solid rgba(10, 77, 46, 0.18);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pay-tx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pay-tx-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.pay-tx-card__title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+}
+
+.pay-tx-card__amount {
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  color: #064e3b;
+}
+
+.pay-tx-badge {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+}
+
+.pay-tx-badge--revoked {
+  background: rgba(107, 114, 128, 0.25);
+  color: #374151;
+}
+
+.pay-tx-meta {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.55rem;
+  font-size: 0.82rem;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(10, 77, 46, 0.12);
+  border-radius: 6px;
+}
+
+.pay-tx-meta dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.pay-tx-meta dd {
+  margin: 0;
+  color: #1a211e;
+  font-weight: 500;
+}
+
+.pay-tx-alloc-title {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #374151;
+}
+
+.pay-tx-alloc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(10, 77, 46, 0.15);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.pay-tx-alloc-table th,
+.pay-tx-alloc-table td {
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(10, 77, 46, 0.1);
+}
+
+.pay-tx-alloc-table th {
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  background: rgba(10, 77, 46, 0.08);
+}
+
+.pay-tx-alloc-table th.num,
+.pay-tx-alloc-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pay-tx-alloc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pay-tx-status-cell {
+  color: #1f2937;
+}
+
+.pay-tx-list li.pay-tx--revoked .pay-tx-card__amount {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+/* Compact ledger lines (invoice / payment on invoice) */
+.pay-tx-line--compact {
+  padding: 0.5rem 0.55rem;
+}
+
+.pay-tx-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  line-height: 1.45;
+}
+
+.pay-tx-line__date {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-tx-line__type {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.pay-tx-line__method {
+  font-size: 0.82rem;
+  color: #4b5563;
+}
+
+.pay-tx-line__ref {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+
+.pay-tx-line__ref::before {
+  content: "· ";
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.pay-tx-line__amt {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-tx-line-sub--deleted {
+  width: 100%;
+  flex-basis: 100%;
+  margin-top: 0.35rem;
+  padding-top: 0.25rem;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  line-height: 1.35;
+}
+
+.pay-tx-list li.pay-tx--invoice-deleted {
+  border-left: 3px solid #78909c;
+}
+
+.pay-tx-alloc {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+  list-style: disc;
+  color: #374151;
+}
+
+/* Record payment — invoice picker (cards) */
+.pay-invoice-field {
+  margin-bottom: 0.75rem;
+}
+
+.pay-invoice-field-label {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.4rem;
+  letter-spacing: 0.01em;
+}
+
+.pay-invoice-checklist {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0.45rem 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(165deg, #f8faf9 0%, #fff 48%, #f6f9f8 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 4px rgba(0, 0, 0, 0.06);
+  scrollbar-gutter: stable;
+}
+
+.pay-invoice-checklist:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: #9ec4b4;
+}
+
+.pay-invoice-checklist-empty {
+  margin: 0.35rem 0;
+  padding: 0.5rem;
+  text-align: center;
+  font-size: 0.88rem;
+}
+
+label.pay-inv-picker-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto max-content;
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0;
+  margin: 0;
+  padding: 0.32rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid rgba(26, 95, 74, 0.12);
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 400;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+label.pay-inv-picker-row:hover {
+  border-color: rgba(26, 95, 74, 0.28);
+  box-shadow: 0 2px 6px rgba(26, 95, 74, 0.08);
+}
+
+label.pay-inv-picker-row:has(.pay-inv-picker-cb:checked) {
+  border-color: rgba(26, 95, 74, 0.45);
+  background: linear-gradient(135deg, rgba(26, 95, 74, 0.09) 0%, rgba(26, 95, 74, 0.04) 100%);
+  box-shadow: 0 0 0 1px rgba(26, 95, 74, 0.12);
+}
+
+.pay-inv-picker-cb {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  margin: 0;
+  align-self: center;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.pay-inv-picker__num {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #143d32;
+  letter-spacing: 0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pay-inv-picker__amt {
+  font-weight: 600;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: #0f3d2e;
+  justify-self: end;
+}
+
+.pay-inv-picker-row .history-inv-status {
+  margin: 0;
+  font-size: 0.58rem;
+  padding: 0.12rem 0.38rem;
+  line-height: 1.2;
+}
+
+p.pay-invoice-help {
+  margin-top: 0.45rem;
+  margin-bottom: 0.65rem;
 }
 
 /* —— List pagination (history, customers, quick orders, modals) —— */
@@ -917,7 +1266,7 @@ body.app-loading-active {
 }
 
 .customer-invoices-modal-panel {
-  max-width: min(640px, 100%);
+  max-width: min(960px, 100%);
 }
 
 .customer-invoices-modal-scroll {
@@ -959,6 +1308,10 @@ body.app-loading-active {
   white-space: nowrap;
 }
 
+.customer-invoices-table .history-inv-status {
+  margin-bottom: 0;
+}
+
 .cust-inv-modal-link {
   color: var(--primary);
   font-weight: 600;
@@ -967,6 +1320,26 @@ body.app-loading-active {
 
 .cust-inv-modal-link:hover {
   text-decoration: underline;
+}
+
+.customer-invoices-table .cust-inv-detail {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+  max-width: 22rem;
+}
+
+.customer-invoices-table .cust-inv-saved-at {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.customer-invoices-table tr.cust-inv-row--deleted td {
+  opacity: 0.92;
+}
+
+.cust-inv-deleted-tag {
+  font-weight: 500;
 }
 
 .view[hidden] {
@@ -1740,6 +2113,17 @@ body.login-screen-active #app-main {
   padding-top: 0.65rem;
 }
 
+/* Deleted archive row: same card chrome as link rows, not clickable */
+.invoice-list > li > .history-inv-card.history-inv-card--deleted {
+  display: block;
+  padding: 0.65rem 1rem 0.85rem;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
 .invoice-list > li > a:hover {
   border-color: var(--primary);
 }
@@ -1788,6 +2172,22 @@ body.login-screen-active #app-main {
   background: var(--bg);
   color: var(--muted);
   border: 1px solid var(--border);
+}
+
+.history-inv-status--deleted {
+  background: #eceff1;
+  color: #37474f;
+  border: 1px dashed #78909c;
+}
+
+.history-inv-card--deleted {
+  cursor: default;
+  border-style: dashed;
+}
+
+.history-inv-deleted-meta {
+  margin-top: 0.4rem;
+  line-height: 1.4;
 }
 
 .history-inv-main {
@@ -2030,6 +2430,7 @@ body.login-screen-active #app-main {
   border-radius: var(--radius);
   padding: 0.75rem 0.85rem 1rem;
   max-width: 210mm;
+  min-width: 210mm;
   margin: 0 auto;
   overflow-x: visible;
   overflow-y: visible;
@@ -3141,6 +3542,7 @@ body.login-screen-active #app-main {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin: 0 0 0.15rem;
+  padding-top: 0.35rem;
 }
 
 .gst-invoice .inv-pdf-footer-tail .inv-computer-gen {
@@ -3301,15 +3703,17 @@ body.login-screen-active #app-main {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  row-gap: 0;
 }
 
-/* Jurisdiction lines sit after the table frame; margin-top = gap below the last horizontal rule (stays with table when stamp row grows). */
-.inv-a4-sheet > .inv-outside-footer {
+/* Below the bordered <table> (sibling of inv-a4-sheet-frame), not inside the invoice cell borders. */
+.inv-a4-sheet > .inv-outside-footer.inv-outside-footer--below-table {
   flex: 0 0 auto;
   width: 100%;
-  margin-top: 4mm;
-  padding-top: 2mm;
+  margin-top: 0;
+  padding-top: 0;
   box-sizing: border-box;
+  clear: both;
 }
 
 .inv-a4-sheet-frame {
@@ -3317,14 +3721,16 @@ body.login-screen-active #app-main {
   flex-direction: column;
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
-  height: 100%;
+  /* min-height:0 + height:100% let the frame stay shorter than a taller table (e.g. stacked payment line),
+     so the table painted over the jurisdiction footer; min-content keeps at least the table’s intrinsic height */
+  min-height: min-content;
+  height: auto;
   box-sizing: border-box;
 }
 
 .inv-a4-sheet-grow {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: min-content;
   display: flex;
   flex-direction: column;
 }
@@ -3332,7 +3738,7 @@ body.login-screen-active #app-main {
 /* Single root invoice table: fills the sheet band; middle tbody row stretches for line items */
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-sheet-grow > .inv-root-invoice {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: min-content;
   width: 100%;
   height: 100%;
   border-collapse: collapse;
@@ -3344,11 +3750,19 @@ body.login-screen-active #app-main {
   height: 100%;
 }
 
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-root-invoice > tbody.inv-tbody-goods {
+  height: 100%;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-invoice-one-table tbody.inv-tbody-goods > tr.inv-item-line {
   height: auto;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-invoice-one-table tbody.inv-tbody-goods > tr.inv-goods-spacer-row {
+  height: 100%;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-invoice-one-table tbody.inv-tbody-goods > tr.inv-goods-spacer-row {
   height: 100%;
 }
 
@@ -3385,8 +3799,18 @@ body.login-screen-active #app-main {
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout {
   width: 100%;
-  min-width: 0;
-  max-width: 210mm;
+  min-width: 100%;
+  max-width: 100%;
+}
+
+/* Full A4 page shell on screen: short invoices still fill one sheet; taller content grows past 297mm */
+.inv-a4-layout .inv-a4-page {
+  min-height: 297mm;
+  height: auto;
+}
+
+.inv-a4-layout .inv-a4-top-band {
+  flex: 0 0 20mm;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table {
@@ -3401,25 +3825,13 @@ body.login-screen-active #app-main {
   max-width: 100%;
 }
 
-/* Tall stamp row: height:100% + flex can clip the table box; outside footer must stay below the grid, not over it */
+/* Middle band stretches inside the fixed A4 shell (spacer row absorbs extra height when few line items) */
 .gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-a4-sheet {
+  flex: 1 1 257mm;
+  min-height: 257mm;
   flex-shrink: 0;
   overflow: visible;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-a4-sheet-frame {
-  flex: 0 0 auto;
-  height: auto;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-a4-sheet-grow {
-  flex: 0 0 auto;
-}
-
-.gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-a4-sheet-grow > .inv-root-invoice {
-  height: auto !important;
-  flex: 0 0 auto;
-  min-height: 257mm;
+  row-gap: 0;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-root-table > tbody > tr > td,
@@ -3729,7 +4141,7 @@ body.login-screen-active #app-main {
   vertical-align: top;
 }
 
-/* A4 layout: extra room and clarity for the goods table (middle band uses min-height 257mm) */
+/* A4 layout: extra room and clarity for the goods table */
 .gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-invoice-one-table tbody.inv-items > tr.inv-goods-head-row > th {
   padding: 6px 5px 7px !important;
   font-weight: 700;
@@ -3748,7 +4160,8 @@ body.login-screen-active #app-main {
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single.inv-a4-layout .inv-invoice-one-table tbody.inv-items > tr.inv-goods-spacer-row > td.inv-goods-spacer-cell {
-  min-height: 96px;
+  /* Tighter than 72px/96px — less blank band helps keep payment + jurisdiction on page 1 */
+  min-height: 40px;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-tax-line {
@@ -3983,6 +4396,7 @@ body.login-screen-active #app-main {
   text-transform: uppercase;
   font-weight: 700;
   margin: 2px 0 1px;
+  padding-top: 8px;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-computer-gen {
@@ -4051,6 +4465,7 @@ body.login-screen-active #app-main {
 
 .gst-invoice .inv-footer-jurisdiction {
   margin: 0.5rem 0 0.15rem;
+  padding-top: 0.35rem;
   font-size: 0.82em;
   text-align: center;
 }
@@ -4430,8 +4845,10 @@ body.login-screen-active #app-main {
     overflow: visible !important;
   }
 
+  /* Same visual fit as browser print “Scale: 96%” — use dialog scale 100% (Chrome/Edge/Safari; shrinks layout box) */
   #invoice-print-root .invoice-view-sheet-wrap {
     overflow: visible !important;
+    zoom: 0.96;
   }
 
   /* Avoid stray focus rings in the print preview canvas */
@@ -4452,13 +4869,15 @@ body.login-screen-active #app-main {
     margin-right: auto;
   }
 
-  /* Same shell as view + PDF: keep flex, min-heights, sheet frame, items stretch — do not strip layout here */
+  /* Full A4 shell; content taller than one page still flows (min-height does not cap max height) */
   #invoice-print-root .inv-a4-page {
     width: 210mm;
     max-width: none;
     margin: 0 auto;
     padding: 0 10mm;
     box-sizing: border-box;
+    min-height: 297mm;
+    height: auto;
   }
 
   /* Meta table: explicit borders (same as line items) — do not rely on background “gutter” */
@@ -4575,6 +4994,7 @@ html.invoice-pdf-emulate-print #invoice-print-root {
 
 html.invoice-pdf-emulate-print #invoice-print-root .invoice-view-sheet-wrap {
   overflow: visible !important;
+  zoom: 0.96;
 }
 
 html.invoice-pdf-emulate-print #invoice-print-root.invoice-print-outer {
@@ -4594,6 +5014,8 @@ html.invoice-pdf-emulate-print #invoice-print-root .inv-a4-page {
   margin: 0 auto;
   padding: 0 10mm;
   box-sizing: border-box;
+  min-height: 297mm;
+  height: auto;
 }
 
 html.invoice-pdf-emulate-print #invoice-print-root .inv-meta-print-table {
@@ -5028,6 +5450,29 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
 .dashboard-lead {
   max-width: 52rem;
   margin: 0 0 0.75rem;
+}
+
+.dashboard-fy-bar {
+  margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+}
+
+.dashboard-fy-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dashboard-fy-label select {
+  max-width: 16rem;
+  font-weight: normal;
+}
+
+.dashboard-fy-hint {
+  margin: 0.5rem 0 0;
+  line-height: 1.45;
 }
 
 .dashboard-kpi-strip {
@@ -5484,10 +5929,18 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
   text-align: center;
 }
 
-/* Beats generic .inv-outside-footer above: gap below table + above “Subject to…” */
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-sheet > .inv-outside-footer {
-  margin-top: 4mm;
-  padding-top: 2mm;
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-sheet > .inv-outside-footer.inv-outside-footer--below-table {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer.inv-outside-footer--below-table .inv-footer-jurisdiction {
+  padding-top: 0;
+}
+
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer.inv-outside-footer--below-table .inv-computer-gen {
+  margin-top: 2mm;
+  padding-top: 0;
 }
 
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-header {
@@ -5520,7 +5973,16 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
 }
 
 /* Footer lines centered in the bottom 20mm band */
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-bottom-band .inv-footer-jurisdiction,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-bottom-band .inv-footer-jurisdiction {
+  border: none !important;
+  margin: 0;
+  padding: 8px 0 0;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-a4-bottom-band .inv-computer-gen {
   border: none !important;
   margin: 0;
@@ -5531,7 +5993,15 @@ html.invoice-pdf-emulate-print .inv-invoice-one-table tbody.inv-items > tr.inv-i
   text-align: center;
 }
 
-.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer .inv-footer-jurisdiction,
+.gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer .inv-footer-jurisdiction {
+  border: none !important;
+  margin: 0;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
 .gst-invoice.invoice-a4-compact.invoice-a4-single .inv-outside-footer .inv-computer-gen {
   border: none !important;
   margin: 0;

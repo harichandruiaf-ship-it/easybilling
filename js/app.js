@@ -16,13 +16,25 @@ import {
   deleteInvoice,
   deleteInvoiceDocumentOnly,
   listInvoicesForUser,
+  listDeletedInvoicesForUser,
   getInvoiceById,
+  getDeletedInvoiceArchiveById,
+  invoiceViewModelFromDeletedArchive,
   formatInvoiceDate,
   formatInvoiceDateTime,
   computeInvoicePaymentAmounts,
   round2,
+  enumerateIndiaFYLabels,
+  isInvoiceFullyPaidByAmounts,
 } from "./invoices.js";
-import { recordCustomerPayment, listMoneyTransactionsForCustomer } from "./payments.js";
+import {
+  recordCustomerPayment,
+  listMoneyTransactionsForCustomer,
+  listOpenInvoicesForPaymentSelect,
+  revokeCustomerPayment,
+  findLatestActiveStandalonePayment,
+  todayIsoDate,
+} from "./payments.js";
 import { paginateSlice, mountPaginationBar } from "./pagination.js";
 import { initInvoiceForm, isValidGstinOptional, isValidPanOptional } from "./invoice-form.js";
 import {
@@ -42,7 +54,13 @@ import {
 import { APP_VERSION } from "./app-version.js";
 import { withLoading, showLoading, hideLoading } from "./loading.js";
 import { showToast, showValidationToast } from "./toast.js";
-import { mountDashboard, closeDashboardDetail, closeDashboardQuickOrderModal } from "./dashboard.js";
+import {
+  mountDashboard,
+  closeDashboardDetail,
+  closeDashboardQuickOrderModal,
+  invalidateDashboardCachesForDevReset,
+} from "./dashboard.js";
+import { setupDevAccountResetUI } from "./dev-account-reset.js";
 import {
   getQuickOrderById,
   listOpenQuickOrders,
@@ -117,9 +135,14 @@ let historyFilterDebounce = null;
 
 function rowInvoiceDate(row) {
   const v = row.date;
-  if (!v) return null;
-  if (typeof v.toDate === "function") return v.toDate();
-  if (v instanceof Date) return v;
+  if (v) {
+    if (typeof v.toDate === "function") return v.toDate();
+    if (v instanceof Date) return v;
+  }
+  if (row.isDeleted && row.deletedAt) {
+    const d = row.deletedAt;
+    if (typeof d.toDate === "function") return d.toDate();
+  }
   return null;
 }
 
@@ -253,6 +276,7 @@ function customerSearchBlob(row) {
 function historyQuickSearchBlob(row) {
   return [
     row.invoiceNumber,
+    row.accountPeriodLabel,
     row.customerName,
     row.consigneeName,
     row.referenceNo,
@@ -267,6 +291,9 @@ function historyQuickSearchBlob(row) {
     row.hsnSearchBlob,
     row.sellerGstin,
     row.sellerPan,
+    row.itemsSummary || "",
+    row.originalInvoiceId || "",
+    row.isDeleted ? "deleted removed" : "",
   ].join(" ");
 }
 
@@ -289,8 +316,17 @@ function filterHistoryRows(rows, c) {
     const max = c.amountMax;
     if (min !== "" && min != null && Number.isFinite(Number(min)) && row.total < Number(min)) return false;
     if (max !== "" && max != null && Number.isFinite(Number(max)) && row.total > Number(max)) return false;
-    if (c.paymentStatus && String(row.paymentStatus || "") !== c.paymentStatus) return false;
+    if (c.paymentStatus) {
+      if (c.paymentStatus === "__deleted__") {
+        if (!row.isDeleted) return false;
+      } else {
+        if (row.isDeleted) return false;
+        if (String(row.paymentStatus || "") !== c.paymentStatus) return false;
+      }
+    }
     if (c.paymentMethod && String(row.paymentMethod || "") !== c.paymentMethod) return false;
+    const ap = (c.accountPeriod || "").trim();
+    if (ap && String(row.accountPeriodLabel || "").trim() !== ap) return false;
     if (c.mode === "advanced") {
       if (!includesLoose(row.invoiceNumber, c.invoiceNo)) return false;
       if (!includesTaxId(row.buyerGstin, c.buyerGstin)) return false;
@@ -333,6 +369,7 @@ function readHistoryCriteria() {
     amountMax: document.getElementById("hist-amount-max")?.value ?? "",
     paymentStatus: document.getElementById("hist-payment-status")?.value || "",
     paymentMethod: document.getElementById("hist-payment-method")?.value || "",
+    accountPeriod: document.getElementById("hist-account-period")?.value || "",
     quickSearch: v("hist-search"),
   };
 }
@@ -361,6 +398,7 @@ function clearHistoryFiltersForm() {
     "hist-amount-max",
     "hist-payment-status",
     "hist-payment-method",
+    "hist-account-period",
     "hist-search",
   ];
   ids.forEach((id) => {
@@ -384,6 +422,17 @@ function toggleHistoryAdvancedVisibility() {
   const mode = document.getElementById("hist-filter-mode")?.value || "normal";
   const adv = document.getElementById("history-advanced-fields");
   adv?.classList.toggle("hidden", mode !== "advanced");
+}
+
+function populateHistoryAccountPeriodSelect() {
+  const sel = document.getElementById("hist-account-period");
+  if (!sel) return;
+  const prev = sel.value;
+  const labels = enumerateIndiaFYLabels(12);
+  sel.innerHTML = `<option value="">All account periods</option>${labels
+    .map((l) => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`)
+    .join("")}`;
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
 }
 
 function populateHistoryCustomerOptions(customers = [], rows = []) {
@@ -456,7 +505,20 @@ function wireHistoryFilters() {
   toggleHistoryCustomDateVisibility();
 }
 
-function historyPaymentStatusBadge(status) {
+/** True when invoice is fully settled: status paid and/or amounts match allocation logic (warn before edit). */
+function isInvoiceStatusPaid(inv) {
+  const st = String(inv?.paymentStatus || "").trim().toLowerCase();
+  if (st === "paid") return true;
+  return isInvoiceFullyPaidByAmounts(inv);
+}
+
+const PAID_INVOICE_EDIT_WARNING =
+  "This invoice is marked as paid. Please do not change line items, amounts, or payment details on a paid invoice — doing so can create conflicts with recorded payments and customer balances.\n\nClick OK to open the editor anyway, or Cancel to return to the invoice view.";
+
+function historyPaymentStatusBadge(status, row) {
+  if (row?.isDeleted) {
+    return { label: "Deleted", mod: "history-inv-status--deleted" };
+  }
   const s = String(status || "").trim().toLowerCase();
   if (s === "paid") {
     return { label: "Paid", mod: "history-inv-status--paid" };
@@ -510,15 +572,46 @@ function renderHistoryPage() {
 
   for (const row of pag.slice) {
     const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = `#/invoice/${row.id}`;
-    a.classList.add("history-inv-card");
-    const dateStr = formatInvoiceDate(row.date);
-    const badge = historyPaymentStatusBadge(row.paymentStatus);
-    const tot = Number(row.total);
-    const totStr = Number.isFinite(tot) ? tot.toFixed(2) : "0.00";
-    a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Payment status: ${escapeHtml(badge.label)}">${escapeHtml(badge.label)}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}</span><div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${totStr}</span></div>`;
-    li.appendChild(a);
+    if (row.isDeleted) {
+      const a = document.createElement("a");
+      a.href = `#/invoice-deleted/${encodeURIComponent(row.id)}`;
+      a.className = "history-inv-card history-inv-card--deleted";
+      const dateStr = formatInvoiceDate(row.date);
+      const delStr = row.deletedAt ? formatInvoiceDateTime(row.deletedAt) : "—";
+      const badge = historyPaymentStatusBadge(row.paymentStatus, row);
+      const tot = Number(row.total);
+      const totStr = Number.isFinite(tot) ? tot.toFixed(2) : "0.00";
+      const gstin = (row.buyerGstin || "").trim();
+      const sumLine = (row.itemsSummary || "").trim();
+      const extra = [
+        gstin ? `GSTIN ${gstin}` : "",
+        sumLine ? sumLine : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Status: ${escapeHtml(badge.label)}">${escapeHtml(
+        badge.label
+      )}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(
+        row.customerName
+      )}${
+        row.consigneeName && String(row.consigneeName).trim() && row.consigneeName !== row.customerName
+          ? ` <span class="muted">(${escapeHtml(row.consigneeName)})</span>`
+          : ""
+      }</span><div class="meta"><span>Invoice date ${escapeHtml(dateStr)}</span><span>₹ ${totStr}</span></div><div class="history-inv-deleted-meta muted small">Deleted ${escapeHtml(
+        delStr
+      )}${extra ? ` · ${escapeHtml(extra)}` : ""}</div>`;
+      li.appendChild(a);
+    } else {
+      const a = document.createElement("a");
+      a.href = `#/invoice/${row.id}`;
+      a.classList.add("history-inv-card");
+      const dateStr = formatInvoiceDate(row.date);
+      const badge = historyPaymentStatusBadge(row.paymentStatus, row);
+      const tot = Number(row.total);
+      const totStr = Number.isFinite(tot) ? tot.toFixed(2) : "0.00";
+      a.innerHTML = `<span class="history-inv-status ${badge.mod}" aria-label="Payment status: ${escapeHtml(badge.label)}">${escapeHtml(badge.label)}</span><span class="history-inv-main"><strong>${escapeHtml(row.invoiceNumber)}</strong> — ${escapeHtml(row.customerName)}</span><div class="meta"><span>${escapeHtml(dateStr)}</span><span>₹ ${totStr}</span></div>`;
+      li.appendChild(a);
+    }
     listEl.appendChild(li);
   }
 
@@ -550,6 +643,9 @@ let pendingInvoicePayload = null;
 let editingInvoiceId = null;
 /** Snapshot of the invoice being edited (for preview balance math) */
 let editingInvoiceSnapshot = null;
+
+/** Set when user already confirmed PAID_INVOICE_EDIT_WARNING on the invoice view Edit link (avoid duplicate prompt in route). */
+let suppressPaidInvoiceEditWarning = false;
 
 /** Customers page: Firestore id being edited in the modal */
 let editingCustomerId = null;
@@ -629,7 +725,7 @@ function setCreatePageEditMode(isEdit, invoiceNumberHint) {
 
 async function route() {
   const { route: r, id, customerId, editId, quickOrderId } = parseHash();
-  if (r !== "invoice") {
+  if (r !== "invoice" && r !== "invoice-deleted") {
     invoiceBreadcrumbLabel = null;
     invoiceBreadcrumbState = null;
   }
@@ -710,6 +806,14 @@ async function route() {
                 editingInvoiceSnapshot = null;
                 window.location.hash = "#/history";
                 return;
+              }
+              if (isInvoiceStatusPaid(inv)) {
+                if (suppressPaidInvoiceEditWarning) {
+                  suppressPaidInvoiceEditWarning = false;
+                } else if (!window.confirm(PAID_INVOICE_EDIT_WARNING)) {
+                  window.location.hash = `#/invoice/${encodeURIComponent(editId)}`;
+                  return;
+                }
               }
               editingInvoiceId = editId;
               editingInvoiceSnapshot = inv;
@@ -819,6 +923,17 @@ async function route() {
       return;
     }
 
+    if (r === "invoice-deleted" && id) {
+      invoiceBreadcrumbState = "loading";
+      invoiceBreadcrumbLabel = null;
+      showView("invoice");
+      syncAppChrome();
+      await runRouteStep("invoice-deleted", () =>
+        withLoading(() => renderDeletedInvoicePage(id), "Loading archived invoice…")
+      );
+      return;
+    }
+
     showView("dashboard");
     if (currentUser) {
       await runRouteStep("dashboard", () => withLoading(() => mountDashboard(db, currentUser.uid), "Loading dashboard…"));
@@ -828,7 +943,11 @@ async function route() {
     console.error("[route]", ex);
   } finally {
     const { route: rDone, id: idDone } = parseHash();
-    if (rDone === "invoice" && idDone && invoiceBreadcrumbState === "loading") {
+    if (
+      (rDone === "invoice" || rDone === "invoice-deleted") &&
+      idDone &&
+      invoiceBreadcrumbState === "loading"
+    ) {
       invoiceBreadcrumbState = "error";
     }
     syncAppChrome();
@@ -1120,7 +1239,6 @@ async function fillSettingsForm() {
     if (el) el.value = v ?? "";
   };
   setVal("set-name", s.sellerName);
-  setVal("set-subtitle", s.sellerSubtitle);
   setVal("set-address", s.sellerAddress);
   setVal("set-phone", s.sellerPhone);
   setVal("set-gstin", s.sellerGstin);
@@ -1212,7 +1330,7 @@ function setupSettingsForm() {
         () =>
           saveUserSettings(currentUser.uid, {
         sellerName,
-        sellerSubtitle: document.getElementById("set-subtitle").value.trim(),
+        sellerSubtitle: "",
         sellerAddress,
         sellerPhone,
         sellerGstin,
@@ -1290,7 +1408,7 @@ function mergeSellerIntoInvoicePayload(payload, seller) {
   return {
     ...payload,
     sellerName: seller.sellerName,
-    sellerSubtitle: seller.sellerSubtitle || "",
+    sellerSubtitle: "",
     sellerAddress: seller.sellerAddress,
     sellerPhone: seller.sellerPhone,
     sellerGstin: seller.sellerGstin || "",
@@ -1737,6 +1855,13 @@ function closeCustomerPaymentModal() {
   if (form) form.reset();
   const errEl = document.getElementById("customer-payment-error");
   if (errEl) errEl.textContent = "";
+  const editHint = document.getElementById("customer-payment-edit-hint");
+  if (editHint) {
+    editHint.textContent = "";
+    editHint.classList.add("hidden");
+  }
+  const saveBtn = document.getElementById("btn-customer-payment-save");
+  if (saveBtn) saveBtn.textContent = "Save payment";
   const ul = document.getElementById("pay-tx-list");
   if (ul) ul.innerHTML = "";
   const payPag = document.getElementById("pay-tx-pagination");
@@ -1744,6 +1869,85 @@ function closeCustomerPaymentModal() {
     payPag.innerHTML = "";
     payPag.hidden = true;
   }
+}
+
+/**
+ * Renders tick boxes for open invoices (order = allocation priority for selected items).
+ * @param {HTMLElement | null} container
+ * @param {Array<{ id: string, label: string, owed?: number }>} invRows
+ * @param {Set<string> | string[] | null} preselectedIds
+ */
+function renderPaymentInvoiceChecklist(container, invRows, preselectedIds) {
+  if (!container) return;
+  container.innerHTML = "";
+  const selected =
+    preselectedIds instanceof Set
+      ? preselectedIds
+      : new Set((preselectedIds || []).map((x) => String(x)));
+
+  if (!invRows.length) {
+    const p = document.createElement("p");
+    p.className = "muted small pay-invoice-checklist-empty";
+    p.textContent = "No unpaid or partial invoices for this customer.";
+    container.appendChild(p);
+    return;
+  }
+
+  for (const r of invRows) {
+    const row = document.createElement("label");
+    row.className = "pay-inv-picker-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = r.id;
+    cb.className = "pay-inv-picker-cb pay-invoice-cb";
+    cb.dataset.owed = String(round2(Number(r.owed) || 0));
+    cb.checked = selected.has(r.id);
+
+    const owed = round2(Number(r.owed) || 0);
+    const invNum = String(r.invoiceNumber || "").trim() || String(r.id).slice(0, 10);
+    const { label: stLabel, mod: stMod } = historyPaymentStatusBadge(r.paymentStatus);
+
+    const numEl = document.createElement("span");
+    numEl.className = "pay-inv-picker__num";
+    numEl.textContent = invNum;
+    numEl.title = invNum;
+
+    const badge = document.createElement("span");
+    badge.className = `history-inv-status pay-inv-picker-badge ${stMod}`;
+    badge.textContent = stLabel;
+
+    const amtEl = document.createElement("span");
+    amtEl.className = "pay-inv-picker__amt";
+    amtEl.textContent = `₹ ${owed.toFixed(2)}`;
+
+    row.appendChild(cb);
+    row.appendChild(numEl);
+    row.appendChild(badge);
+    row.appendChild(amtEl);
+    container.appendChild(row);
+  }
+}
+
+/** Checked invoice ids in DOM list order (matches oldest-first from server). */
+function getPaymentSelectedInvoiceIds() {
+  const container = document.getElementById("pay-invoice-checkboxes");
+  if (!container) return [];
+  const ids = [];
+  container.querySelectorAll("input.pay-invoice-cb").forEach((cb) => {
+    if (cb.checked) ids.push(cb.value);
+  });
+  return ids;
+}
+
+/** Sum of outstanding (owed) for currently checked invoices — used for validation. */
+function getPaymentSelectedInvoicesOwedTotal() {
+  const container = document.getElementById("pay-invoice-checkboxes");
+  if (!container) return 0;
+  let sum = 0;
+  container.querySelectorAll("input.pay-invoice-cb:checked").forEach((cb) => {
+    sum += round2(Number(cb.dataset.owed) || 0);
+  });
+  return round2(sum);
 }
 
 function renderPayTxModalPage() {
@@ -1755,12 +1959,16 @@ function renderPayTxModalPage() {
   const typeShort = (t) => {
     if (t === "INVOICE_TOTAL") return "Invoice total";
     if (t === "PAYMENT_ON_INVOICE") return "Payment (on invoice)";
-    if (t === "PAYMENT_STANDALONE") return "Payment";
+    if (t === "PAYMENT_STANDALONE") return "Payment in";
     if (t === "INVOICE_ADJUSTMENT") return "Invoice adjustment";
+    if (t === "INVOICE_DELETED") return "Invoice deleted";
     return t || "Entry";
   };
   const txAmount = (tx) => {
-    if (tx.type === "INVOICE_ADJUSTMENT" && tx.receivableDelta != null) {
+    if (
+      (tx.type === "INVOICE_ADJUSTMENT" || tx.type === "INVOICE_DELETED") &&
+      tx.receivableDelta != null
+    ) {
       return round2(Number(tx.receivableDelta));
     }
     return round2(Number(tx.amount) || 0);
@@ -1769,6 +1977,7 @@ function renderPayTxModalPage() {
     if (type === "INVOICE_TOTAL") return "pay-tx--invoice";
     if (type === "PAYMENT_ON_INVOICE" || type === "PAYMENT_STANDALONE") return "pay-tx--payment";
     if (type === "INVOICE_ADJUSTMENT") return "pay-tx--adjustment";
+    if (type === "INVOICE_DELETED") return "pay-tx--invoice-deleted";
     return "pay-tx--other";
   };
   if (!txs.length) {
@@ -1784,25 +1993,178 @@ function renderPayTxModalPage() {
   }
   const pag = paginateSlice(txs, payTxModalPageIndex, PAY_TX_PAGE_SIZE);
   payTxModalPageIndex = pag.pageIndex;
+  const latestPay = findLatestActiveStandalonePayment(txs);
+
   for (const tx of pag.slice) {
     const li = document.createElement("li");
     li.className = txRowClass(tx.type);
-    const amt = txAmount(tx);
-    const dt = tx.createdAt ? formatInvoiceDate(tx.createdAt) : "—";
-    const invNo = tx.invoiceNumber ? ` ${tx.invoiceNumber}` : "";
-    let alloc = "";
-    if (tx.type === "PAYMENT_STANDALONE" && Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
-      const nums = tx.allocatedInvoices.map((a) => a.invoiceNumber || "").filter(Boolean);
-      if (nums.length) {
-        const shown = nums.slice(0, 4);
-        alloc = ` → ${shown.join(", ")}${nums.length > 4 ? "…" : ""}`;
+    if (tx.type === "PAYMENT_STANDALONE" && tx.ledgerStatus === "revoked") {
+      li.classList.add("pay-tx--revoked");
+    }
+
+    if (tx.type === "PAYMENT_STANDALONE") {
+      li.classList.add("pay-tx--standalone");
+      const amt = txAmount(tx);
+      const receivedLabel = tx.amountReceivedDate ? formatInvoiceDate(tx.amountReceivedDate) : "—";
+      const sys = tx.recordedAt || tx.createdAt;
+      const sysStr = sys ? formatInvoiceDateTime(sys) : "—";
+      const methodLabel = tx.paymentMethod ? paymentMethodLabel(tx.paymentMethod) : "—";
+
+      const card = document.createElement("div");
+      card.className = "pay-tx-card";
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "pay-tx-card__head";
+      const title = document.createElement("span");
+      title.className = "pay-tx-card__title";
+      title.textContent = "Payment received";
+      titleRow.appendChild(title);
+      if (tx.ledgerStatus === "revoked") {
+        const badge = document.createElement("span");
+        badge.className = "pay-tx-badge pay-tx-badge--revoked";
+        badge.textContent = "Revoked";
+        titleRow.appendChild(badge);
+      }
+      const amtStrong = document.createElement("span");
+      amtStrong.className = "pay-tx-card__amount";
+      amtStrong.textContent = `₹ ${amt.toFixed(2)}`;
+      titleRow.appendChild(amtStrong);
+      card.appendChild(titleRow);
+
+      const meta = document.createElement("dl");
+      meta.className = "pay-tx-meta";
+      const metaRows = [
+        ["Received date", receivedLabel],
+        ["Method", methodLabel],
+        ["Recorded in app", sysStr],
+      ];
+      for (const [dt, dd] of metaRows) {
+        const dEl = document.createElement("dt");
+        dEl.textContent = dt;
+        const ddEl = document.createElement("dd");
+        ddEl.textContent = dd;
+        meta.appendChild(dEl);
+        meta.appendChild(ddEl);
+      }
+      card.appendChild(meta);
+
+      if (Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
+        const allocTitle = document.createElement("div");
+        allocTitle.className = "pay-tx-alloc-title";
+        allocTitle.textContent = "Applied to invoices";
+        card.appendChild(allocTitle);
+
+        const table = document.createElement("table");
+        table.className = "pay-tx-alloc-table";
+        const thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th>Invoice</th><th class=\"num\">Applied</th><th>Status</th><th class=\"num\">Paid on invoice</th></tr>";
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        for (const a of tx.allocatedInvoices) {
+          const tr = document.createElement("tr");
+          const num = a.invoiceNumber || a.invoiceId || "—";
+          const ap = round2(Number(a.amountApplied) || 0);
+          const sb = String(a.statusBefore ?? "—");
+          const sa = String(a.statusAfter ?? "—");
+          const pb = round2(Number(a.paidBefore) || 0);
+          const pa = round2(Number(a.paidAfter) || 0);
+          const tdInv = document.createElement("td");
+          tdInv.textContent = num;
+          const tdAp = document.createElement("td");
+          tdAp.className = "num";
+          tdAp.textContent = `₹${ap.toFixed(2)}`;
+          const tdSt = document.createElement("td");
+          tdSt.className = "pay-tx-status-cell";
+          tdSt.textContent = `${sb} → ${sa}`;
+          const tdPaid = document.createElement("td");
+          tdPaid.className = "num pay-tx-paid-range";
+          tdPaid.textContent = `₹${pb.toFixed(2)} → ₹${pa.toFixed(2)}`;
+          tr.appendChild(tdInv);
+          tr.appendChild(tdAp);
+          tr.appendChild(tdSt);
+          tr.appendChild(tdPaid);
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        card.appendChild(table);
+      }
+
+      if (
+        latestPay &&
+        tx.id === latestPay.id &&
+        tx.ledgerStatus !== "revoked" &&
+        paymentCustomerId &&
+        Array.isArray(tx.allocatedInvoices) &&
+        tx.allocatedInvoices.length > 0
+      ) {
+        const actions = document.createElement("div");
+        actions.className = "pay-tx-actions";
+        const btnRev = document.createElement("button");
+        btnRev.type = "button";
+        btnRev.className = "btn btn-secondary btn-small";
+        btnRev.textContent = "Revoke";
+        btnRev.dataset.payRevoke = tx.id;
+        actions.appendChild(btnRev);
+        card.appendChild(actions);
+      }
+
+      li.appendChild(card);
+    } else {
+      const amt = txAmount(tx);
+      const dt = tx.createdAt ? formatInvoiceDate(tx.createdAt) : "—";
+      const invNo = tx.invoiceNumber ? tx.invoiceNumber : "";
+      const modePart =
+        (tx.type === "PAYMENT_ON_INVOICE" || tx.type === "PAYMENT_STANDALONE") && tx.paymentMethod
+          ? paymentMethodLabel(tx.paymentMethod)
+          : "";
+
+      li.classList.add("pay-tx-line--compact");
+      const row = document.createElement("div");
+      row.className = "pay-tx-line";
+      const dateEl = document.createElement("span");
+      dateEl.className = "pay-tx-line__date";
+      dateEl.textContent = dt;
+      const typeEl = document.createElement("span");
+      typeEl.className = "pay-tx-line__type";
+      typeEl.textContent =
+        tx.type === "INVOICE_DELETED"
+          ? `Invoice deleted${invNo ? ` · ${invNo}` : ""}`
+          : typeShort(tx.type);
+      row.appendChild(dateEl);
+      row.appendChild(typeEl);
+      if (modePart) {
+        const mEl = document.createElement("span");
+        mEl.className = "pay-tx-line__method";
+        mEl.textContent = modePart;
+        row.appendChild(mEl);
+      }
+      if (invNo && tx.type !== "INVOICE_DELETED") {
+        const refEl = document.createElement("span");
+        refEl.className = "pay-tx-line__ref";
+        refEl.textContent = invNo;
+        row.appendChild(refEl);
+      }
+      const amtEl = document.createElement("span");
+      amtEl.className = "pay-tx-line__amt";
+      amtEl.textContent = `₹ ${amt.toFixed(2)}`;
+      row.appendChild(amtEl);
+      li.appendChild(row);
+      if (tx.type === "INVOICE_DELETED") {
+        const sub = document.createElement("div");
+        sub.className = "pay-tx-line-sub pay-tx-line-sub--deleted muted small";
+        const tot = tx.total != null ? round2(Number(tx.total)) : null;
+        const net = tx.netReceivableRemoved != null ? round2(Number(tx.netReceivableRemoved)) : null;
+        sub.textContent = [
+          tot != null ? `Total was ₹${tot.toFixed(2)}` : "",
+          net != null ? `Net on invoice ₹${net.toFixed(2)} (removed from balance)` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        li.appendChild(sub);
       }
     }
-    const modePart =
-      (tx.type === "PAYMENT_ON_INVOICE" || tx.type === "PAYMENT_STANDALONE") && tx.paymentMethod
-        ? ` · ${paymentMethodLabel(tx.paymentMethod)}`
-        : "";
-    li.textContent = `${dt} · ${typeShort(tx.type)}${modePart}${invNo}${alloc} · ₹ ${amt.toFixed(2)}`;
+
     ul.appendChild(li);
   }
   mountPaginationBar(pagEl, {
@@ -1833,6 +2195,7 @@ async function openCustomerPaymentModal(customerId) {
     return;
   }
   paymentCustomerId = customerId;
+
   const forEl = document.getElementById("customer-payment-for");
   if (forEl) forEl.textContent = c.name ? `Customer: ${c.name}` : "";
   const outEl = document.getElementById("customer-payment-outstanding");
@@ -1840,6 +2203,14 @@ async function openCustomerPaymentModal(customerId) {
 
   const form = document.getElementById("form-customer-payment");
   if (form) form.reset();
+
+  const editHint = document.getElementById("customer-payment-edit-hint");
+  if (editHint) {
+    editHint.textContent = "";
+    editHint.classList.add("hidden");
+  }
+  const saveBtn = document.getElementById("btn-customer-payment-save");
+  if (saveBtn) saveBtn.textContent = "Save payment";
 
   payTxModalPageIndex = 0;
   try {
@@ -1862,6 +2233,21 @@ async function openCustomerPaymentModal(customerId) {
     }
   }
 
+  const checklistEl = document.getElementById("pay-invoice-checkboxes");
+  let invRows = [];
+  try {
+    invRows = await listOpenInvoicesForPaymentSelect(db, currentUser.uid, customerId);
+  } catch (_) {
+    invRows = [];
+  }
+
+  const dateInp = document.getElementById("pay-received-date");
+  if (dateInp) {
+    dateInp.value = todayIsoDate();
+  }
+
+  renderPaymentInvoiceChecklist(checklistEl, invRows, null);
+
   const modal = document.getElementById("customer-payment-modal");
   if (modal) {
     modal.classList.remove("hidden");
@@ -1874,10 +2260,41 @@ function setupCustomerPaymentModal() {
   const form = document.getElementById("form-customer-payment");
   const btnCancel = document.getElementById("btn-customer-payment-cancel");
   const backdrop = document.getElementById("customer-payment-backdrop");
+  const txListEl = document.getElementById("pay-tx-list");
   if (!form || !btnCancel) return;
 
   btnCancel.addEventListener("click", () => closeCustomerPaymentModal());
   backdrop?.addEventListener("click", () => closeCustomerPaymentModal());
+
+  txListEl?.addEventListener("click", async (e) => {
+    const revokeBtn = e.target.closest("[data-pay-revoke]");
+    if (!revokeBtn) return;
+    if (!paymentCustomerId || !currentUser) return;
+    const txId = revokeBtn.dataset?.payRevoke;
+    if (!txId) return;
+
+    if (!window.confirm("Revoke this payment? Invoice balances and outstanding will be restored.")) return;
+    try {
+      await withLoading(
+        () =>
+          revokeCustomerPayment(db, currentUser.uid, {
+            customerId: paymentCustomerId,
+            transactionId: txId,
+          }),
+        "Revoking…"
+      );
+      showToast("Payment revoked.");
+      payTxModalList = await listMoneyTransactionsForCustomer(db, currentUser.uid, paymentCustomerId, 100);
+      payTxModalPageIndex = 0;
+      renderPayTxModalPage();
+      const c = await getCustomerById(db, paymentCustomerId);
+      const outEl = document.getElementById("customer-payment-outstanding");
+      if (outEl && c) outEl.textContent = `₹ ${round2(Number(c.outstandingBalance) || 0).toFixed(2)}`;
+      await renderCustomersPage();
+    } catch (ex) {
+      showToast(firestorePermissionHint(ex) || ex.message || "Could not revoke.", { type: "error" });
+    }
+  });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1890,17 +2307,33 @@ function setupCustomerPaymentModal() {
       showValidationToast("Enter a valid amount.", { errEl });
       return;
     }
+    const amt = round2(raw);
     const method = document.getElementById("pay-method")?.value || "other";
     const note = document.getElementById("pay-note")?.value?.trim() || "";
+    const amountReceivedDateIso = document.getElementById("pay-received-date")?.value?.trim() || todayIsoDate();
+    const selectedInvoiceIds = getPaymentSelectedInvoiceIds();
+
+    if (selectedInvoiceIds.length > 0) {
+      const sumOwedSelected = getPaymentSelectedInvoicesOwedTotal();
+      if (amt < sumOwedSelected - 1e-6) {
+        showValidationToast(
+          "The amount received is less than the total outstanding on the invoices you ticked. Untick one or more invoices, or enter a higher amount.",
+          { errEl }
+        );
+        return;
+      }
+    }
 
     try {
       await withLoading(
         () =>
           recordCustomerPayment(db, currentUser.uid, {
             customerId: paymentCustomerId,
-            amount: raw,
+            amount: amt,
             paymentMethod: method,
             note,
+            amountReceivedDateIso,
+            selectedInvoiceIds,
           }),
         "Saving payment…"
       );
@@ -2077,6 +2510,40 @@ function sortInvoicesByDateDesc(rows) {
   return [...rows].sort((a, b) => invoiceRowMillis(b) - invoiceRowMillis(a));
 }
 
+/** Last time the invoice document was saved (edit updates `updatedAt`). Deleted rows show removal time. */
+function formatInvoiceLastSavedForCustomerList(inv) {
+  if (inv.isDeleted) {
+    if (inv.deletedAt) return `${formatInvoiceDateTime(inv.deletedAt)} · removed`;
+    return `${formatInvoiceDate(inv.date)} · removed`;
+  }
+  const ts = inv.updatedAt || inv.createdAt;
+  if (ts) return formatInvoiceDateTime(ts);
+  return `${formatInvoiceDate(inv.date)} (no save time)`;
+}
+
+function customerInvoiceDetailSummary(inv) {
+  const parts = [];
+  const sum = String(inv.itemsSummary || "").trim();
+  if (sum) parts.push(sum);
+  const ap = String(inv.accountPeriodLabel || "").trim();
+  if (ap) parts.push(`Account period ${ap}`);
+  const pos = String(inv.placeOfSupply || "").trim();
+  if (pos) parts.push(`POS ${pos}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+function mergeCustomerInvoiceMapsByCustomer(liveMap, deletedMap) {
+  const out = new Map();
+  const ids = new Set([...liveMap.keys(), ...deletedMap.keys()]);
+  for (const cid of ids) {
+    const live = liveMap.get(cid) || [];
+    const del = deletedMap.get(cid) || [];
+    const combined = [...live, ...del].sort((a, b) => invoiceRowMillis(b) - invoiceRowMillis(a));
+    out.set(cid, combined);
+  }
+  return out;
+}
+
 function groupInvoicesByCustomerId(invoiceRows) {
   const map = new Map();
   for (const inv of invoiceRows) {
@@ -2105,7 +2572,7 @@ function renderCustomerInvoicesModalTable() {
   if (!rows.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 3;
+    td.colSpan = 6;
     td.className = "muted";
     td.textContent = "No invoices saved for this customer yet.";
     tr.appendChild(td);
@@ -2120,20 +2587,44 @@ function renderCustomerInvoicesModalTable() {
   custInvModalPageIndex = pag.pageIndex;
   for (const inv of pag.slice) {
     const tr = document.createElement("tr");
+    if (inv.isDeleted) tr.classList.add("cust-inv-row--deleted");
     const tdNum = document.createElement("td");
     const a = document.createElement("a");
-    a.href = `#/invoice/${inv.id}`;
+    a.href = inv.isDeleted ? `#/invoice-deleted/${encodeURIComponent(inv.id)}` : `#/invoice/${inv.id}`;
     a.textContent = inv.invoiceNumber || "—";
     a.className = "cust-inv-modal-link";
     tdNum.appendChild(a);
+    if (inv.isDeleted) {
+      const delSpan = document.createElement("span");
+      delSpan.className = "cust-inv-deleted-tag muted small";
+      delSpan.textContent = " Deleted";
+      tdNum.appendChild(document.createTextNode(" "));
+      tdNum.appendChild(delSpan);
+    }
+    const tdDoc = document.createElement("td");
+    tdDoc.textContent = formatInvoiceDate(inv.date);
     const tdAmt = document.createElement("td");
     tdAmt.className = "num";
     const amt = Number(inv.total);
     tdAmt.textContent = `₹ ${Number.isFinite(amt) ? amt.toFixed(2) : "0.00"}`;
+    const badge = historyPaymentStatusBadge(inv.paymentStatus, inv);
+    const tdStatus = document.createElement("td");
+    const st = document.createElement("span");
+    st.className = `history-inv-status ${badge.mod}`;
+    st.setAttribute("aria-label", `Payment status: ${badge.label}`);
+    st.textContent = badge.label;
+    tdStatus.appendChild(st);
+    const tdDetail = document.createElement("td");
+    tdDetail.className = "cust-inv-detail";
+    tdDetail.textContent = customerInvoiceDetailSummary(inv);
     const tdWhen = document.createElement("td");
-    tdWhen.textContent = formatInvoiceDateTime(inv.date);
+    tdWhen.className = "cust-inv-saved-at";
+    tdWhen.textContent = formatInvoiceLastSavedForCustomerList(inv);
     tr.appendChild(tdNum);
+    tr.appendChild(tdDoc);
     tr.appendChild(tdAmt);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdDetail);
     tr.appendChild(tdWhen);
     tbody.appendChild(tr);
   }
@@ -2572,10 +3063,12 @@ async function renderCustomersPage() {
 
   let rows;
   let invoiceRows = [];
+  let deletedRows = [];
   try {
-    [rows, invoiceRows] = await Promise.all([
+    [rows, invoiceRows, deletedRows] = await Promise.all([
       listCustomers(db, currentUser.uid),
       listInvoicesForUser(db, currentUser.uid).catch(() => []),
+      listDeletedInvoicesForUser(db, currentUser.uid).catch(() => []),
     ]);
   } catch (ex) {
     customersPageCache = null;
@@ -2587,7 +3080,10 @@ async function renderCustomersPage() {
     }
     return;
   }
-  const byCustomer = groupInvoicesByCustomerId(invoiceRows);
+  const byCustomer = mergeCustomerInvoiceMapsByCustomer(
+    groupInvoicesByCustomerId(invoiceRows),
+    groupInvoicesByCustomerId(deletedRows)
+  );
   customerInvoicesByCustomerIdCache = byCustomer;
   customersPageCache = rows;
   wireCustomersSearch();
@@ -2607,11 +3103,16 @@ async function renderHistory() {
   }
   if (!currentUser) return;
 
-  let rows;
+  let rows = [];
+  let deletedArchived = [];
   let customers = [];
   try {
-    [rows, customers] = await Promise.all([
+    [rows, deletedArchived, customers] = await Promise.all([
       listInvoicesForUser(db, currentUser.uid),
+      listDeletedInvoicesForUser(db, currentUser.uid).catch((e) => {
+        console.error("[history] Could not load deleted invoice archive:", e?.message || e);
+        return [];
+      }),
       listCustomers(db, currentUser.uid).catch(() => []),
     ]);
   } catch (ex) {
@@ -2621,9 +3122,16 @@ async function renderHistory() {
       "Could not load history. If the console mentions an index, open the link to create it in Firebase.";
     return;
   }
-  historyCache = rows;
+  const live = rows.map((r) => ({ ...r, isDeleted: false }));
+  const merged = [...live, ...deletedArchived].sort((a, b) => {
+    const ta = rowInvoiceDate(a)?.getTime() ?? 0;
+    const tb = rowInvoiceDate(b)?.getTime() ?? 0;
+    return tb - ta;
+  });
+  historyCache = merged;
   wireHistoryFilters();
-  populateHistoryCustomerOptions(customers, rows);
+  populateHistoryAccountPeriodSelect();
+  populateHistoryCustomerOptions(customers, merged);
   emptyEl.innerHTML =
     'No invoices yet. <a href="#/create" class="text-link">Create your first invoice</a>.';
   applyHistoryFilters();
@@ -2666,7 +3174,7 @@ function updateNavActive(routeName) {
   if (!nav) return;
   nav.querySelectorAll("[data-nav-route]").forEach((el) => el.classList.remove("nav-link--active"));
   if (!routeName) return;
-  const key = routeName === "invoice" ? "history" : routeName;
+  const key = routeName === "invoice" || routeName === "invoice-deleted" ? "history" : routeName;
   const link = nav.querySelector(`[data-nav-route="${key}"]`);
   if (link) link.classList.add("nav-link--active");
 }
@@ -2709,6 +3217,20 @@ function updateDocumentTitle() {
         } else {
           const label = invoiceBreadcrumbLabel || id;
           document.title = `${label}${base}`;
+        }
+      } else {
+        document.title = `${APP_NAME} — GST invoices`;
+      }
+      break;
+    case "invoice-deleted":
+      if (id) {
+        if (invoiceBreadcrumbState === "loading") {
+          document.title = `Loading archived invoice${base}`;
+        } else if (invoiceBreadcrumbState === "error") {
+          document.title = `Deleted invoice${base}`;
+        } else {
+          const label = invoiceBreadcrumbLabel || id;
+          document.title = `${label} (deleted)${base}`;
         }
       } else {
         document.title = `${APP_NAME} — GST invoices`;
@@ -2779,6 +3301,20 @@ function syncAppChrome() {
         segments.push({ current: true, label: "Dashboard" });
       }
       break;
+    case "invoice-deleted":
+      if (id) {
+        segments.push({ href: "#/history", label: "Invoice register" });
+        if (invoiceBreadcrumbState === "loading") {
+          segments.push({ current: true, label: "Loading…", loading: true });
+        } else if (invoiceBreadcrumbState === "error") {
+          segments.push({ current: true, label: "Unable to load" });
+        } else {
+          segments.push({ current: true, label: invoiceBreadcrumbLabel || "Deleted invoice" });
+        }
+      } else {
+        segments.push({ current: true, label: "Dashboard" });
+      }
+      break;
     default:
       segments.push({ current: true, label: "Dashboard" });
   }
@@ -2794,7 +3330,7 @@ function syncAppChrome() {
     })
     .join("");
 
-  updateNavActive(r === "invoice" ? "invoice" : r);
+  updateNavActive(r === "invoice" || r === "invoice-deleted" ? "invoice" : r);
   updateDocumentTitle();
 }
 
@@ -3015,7 +3551,46 @@ function setupHistoryBulkDownload() {
   document.getElementById("btn-history-bulk-pdf")?.addEventListener("click", () => downloadHistoryFilteredZip());
 }
 
+/** Deleted / read-only invoice view: no edit or delete (clears prior live-invoice handlers). */
+function applyInvoiceViewActionsReadOnly() {
+  const btnEdit = document.getElementById("btn-invoice-edit");
+  const btnDel = document.getElementById("btn-invoice-delete");
+  if (btnEdit) {
+    btnEdit.hidden = true;
+    btnEdit.setAttribute("aria-hidden", "true");
+    btnEdit.setAttribute("aria-disabled", "true");
+    btnEdit.removeAttribute("href");
+    btnEdit.tabIndex = -1;
+    btnEdit.onclick = (e) => {
+      e.preventDefault();
+    };
+  }
+  if (btnDel) {
+    btnDel.hidden = true;
+    btnDel.disabled = true;
+    btnDel.onclick = null;
+  }
+}
+
+/** Undo read-only state before loading a live invoice (e.g. after viewing a deleted copy). */
+function resetInvoiceViewActionsForLiveInvoice() {
+  const btnEdit = document.getElementById("btn-invoice-edit");
+  const btnDel = document.getElementById("btn-invoice-delete");
+  if (btnEdit) {
+    btnEdit.removeAttribute("aria-hidden");
+    btnEdit.removeAttribute("aria-disabled");
+    btnEdit.removeAttribute("tabIndex");
+  }
+  if (btnDel) btnDel.disabled = false;
+}
+
 async function renderInvoicePage(id) {
+  resetInvoiceViewActionsForLiveInvoice();
+  const archBanner = document.getElementById("invoice-view-archived-banner");
+  if (archBanner) {
+    archBanner.classList.add("hidden");
+    archBanner.textContent = "";
+  }
   const root = document.getElementById("invoice-print-root");
   if (!root) {
     invoiceBreadcrumbState = "error";
@@ -3057,6 +3632,17 @@ async function renderInvoicePage(id) {
   if (btnEdit) {
     btnEdit.href = `#/create?edit=${encodeURIComponent(id)}`;
     btnEdit.hidden = false;
+    if (isInvoiceStatusPaid(inv)) {
+      btnEdit.onclick = (e) => {
+        e.preventDefault();
+        if (window.confirm(PAID_INVOICE_EDIT_WARNING)) {
+          suppressPaidInvoiceEditWarning = true;
+          window.location.hash = `#/create?edit=${encodeURIComponent(id)}`;
+        }
+      };
+    } else {
+      btnEdit.onclick = null;
+    }
   }
   if (btnDel) {
     btnDel.hidden = false;
@@ -3180,6 +3766,152 @@ async function renderInvoicePage(id) {
   };
 }
 
+async function renderDeletedInvoicePage(archiveId) {
+  applyInvoiceViewActionsReadOnly();
+  const archBanner = document.getElementById("invoice-view-archived-banner");
+  if (archBanner) {
+    archBanner.classList.remove("hidden");
+    archBanner.textContent =
+      "This invoice was deleted. The layout below is a read-only snapshot from when it was removed.";
+  }
+
+  const root = document.getElementById("invoice-print-root");
+  if (!root) {
+    invoiceBreadcrumbState = "error";
+    return;
+  }
+  root.replaceChildren();
+  const sheetMount = document.createElement("div");
+  sheetMount.className = "invoice-view-sheet-wrap";
+  root.appendChild(sheetMount);
+
+  if (!currentUser) {
+    invoiceBreadcrumbState = "error";
+    return;
+  }
+
+  let arch;
+  try {
+    arch = await getDeletedInvoiceArchiveById(db, currentUser.uid, archiveId);
+  } catch (ex) {
+    invoiceBreadcrumbState = "error";
+    root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not load archived invoice."))}</p>`;
+    showToast(formatAppError(ex, "Could not load archived invoice."), { type: "error" });
+    return;
+  }
+  if (!arch) {
+    invoiceBreadcrumbState = "error";
+    root.innerHTML = `<p class="muted">Archived invoice not found.</p>`;
+    showToast("Archived invoice not found.", { type: "error" });
+    return;
+  }
+
+  const inv = invoiceViewModelFromDeletedArchive(arch);
+  const items = Array.isArray(inv?.items) ? inv.items : [];
+
+  const stampChk = document.getElementById("invoice-view-show-stamp");
+  if (stampChk) stampChk.checked = false;
+  const typeSel = document.getElementById("invoice-view-type-select");
+  if (typeSel) typeSel.value = "";
+
+  function getInvoiceTypeLabel() {
+    const sel = document.getElementById("invoice-view-type-select");
+    if (!sel) return "";
+    const v = sel.value;
+    if (v === "original") return "Original for Recipient";
+    if (v === "duplicate") return "Duplicate for Transporter";
+    return "";
+  }
+
+  let viewNode;
+  function mountInvoiceView() {
+    const includeStamp = stampChk ? stampChk.checked : false;
+    const invoiceTypeLabel = getInvoiceTypeLabel();
+    const newNode = renderInvoiceDocument(inv, { includeStamp, invoiceTypeLabel });
+    sheetMount.replaceChildren(newNode);
+    viewNode = newNode;
+  }
+
+  if (items.length === 0) {
+    sheetMount.innerHTML = `<p class="muted">Line items were not stored in this archive. Only register summary fields are available for older deletions.</p>`;
+    invoiceBreadcrumbLabel = arch.invoiceNumber || archiveId;
+    invoiceBreadcrumbState = "ready";
+    const invTitleEl = document.getElementById("invoice-view-page-title-text");
+    if (invTitleEl) {
+      const num = arch.invoiceNumber || archiveId;
+      invTitleEl.textContent = num ? `GST invoice · ${num} (deleted)` : "GST invoice (deleted)";
+    }
+    const dl = document.getElementById("btn-download-pdf");
+    const pr = document.getElementById("btn-print");
+    if (dl) {
+      dl.onclick = () =>
+        showToast("PDF is not available for this archive because line items were not saved.", { type: "error" });
+    }
+    if (pr) {
+      pr.onclick = () =>
+        showToast("Print is not available for this archive because line items were not saved.", { type: "error" });
+    }
+    if (stampChk) stampChk.onchange = null;
+    if (typeSel) typeSel.onchange = null;
+    return;
+  }
+
+  try {
+    mountInvoiceView();
+  } catch (ex) {
+    invoiceBreadcrumbState = "error";
+    root.innerHTML = `<p class="muted">${escapeHtml(formatAppError(ex, "Could not render invoice."))}</p>`;
+    showToast(formatAppError(ex, "Could not render invoice."), { type: "error" });
+    return;
+  }
+
+  if (stampChk) stampChk.onchange = () => mountInvoiceView();
+  if (typeSel) typeSel.onchange = () => mountInvoiceView();
+
+  invoiceBreadcrumbLabel = inv.invoiceNumber || archiveId;
+  invoiceBreadcrumbState = "ready";
+  const invTitleEl = document.getElementById("invoice-view-page-title-text");
+  if (invTitleEl) {
+    const num = inv.invoiceNumber || archiveId;
+    invTitleEl.textContent = num ? `GST invoice · ${num} (deleted)` : "GST invoice (deleted)";
+  }
+
+  const dl = document.getElementById("btn-download-pdf");
+  const pr = document.getElementById("btn-print");
+  if (!dl || !pr) return;
+
+  dl.onclick = async () => {
+    try {
+      if (!window.html2pdf) {
+        showToast("PDF library not loaded. Refresh the page and try again.", { type: "error" });
+        return;
+      }
+      const safeName = String(inv.invoiceNumber || "invoice").replace(/[^a-zA-Z0-9-_]/g, "_");
+      await withLoading(async () => {
+        await new Promise((r) => requestAnimationFrame(r));
+        const pdfCaptureEl = document.getElementById("invoice-print-root") || viewNode;
+        const blob = await invoiceNodeToPdfBlob(pdfCaptureEl);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeName}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, "Generating PDF…");
+      showToast("PDF generated successfully.");
+    } catch (e) {
+      showToast(e.message || "Could not generate PDF.", { type: "error" });
+    }
+  };
+
+  pr.onclick = () => {
+    printInvoice();
+    showToast("Print dialog opened.");
+  };
+}
+
 function setupLogout() {
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     try {
@@ -3218,6 +3950,18 @@ setupAuthForm();
 setupLoginHeroCarousel();
 setupSettingsForm();
 setupSettingsHardRefresh();
+setupDevAccountResetUI({
+  db,
+  getUid: () => currentUser?.uid,
+  onAfterReset: () => {
+    historyCache = null;
+    customersPageCache = null;
+    customerInvoicesByCustomerIdCache = new Map();
+    quickOrdersOpenCache = [];
+    invalidateDashboardCachesForDevReset();
+    window.location.hash = "#/dashboard";
+  },
+});
 setupInvoiceForm();
 setupInvoicePreviewModal();
 setupCustomerEditModal();

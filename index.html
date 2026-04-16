@@ -412,6 +412,13 @@
               <option value="partial">Partial</option>
             </select>
           </label>
+          <label class="report-filter-field">
+            Account period (India FY)
+            <select id="report-account-period">
+              <option value="">All (date range only)</option>
+            </select>
+            <span class="muted small report-filter-hint">Optional — narrows to that FY within the period above.</span>
+          </label>
         </div>
         <div class="btn-row wrap report-filters-actions">
           <button type="button" class="btn btn-primary" id="report-generate">Generate report</button>
@@ -546,12 +553,12 @@
           Business / seller name
           <input type="text" id="set-name" required maxlength="200" />
         </label>
-        <label>
-          Subtitle (optional, printed on invoice)
-          <input type="text" id="set-subtitle" maxlength="120" placeholder="e.g. A/c 2026-2027 or tagline" />
-          <span class="muted small settings-field-hint"
-            >Shown below your business name. <strong>Invoice numbers</strong> use the India financial year (Apr–Mar) from the <strong>invoice date</strong> on each new invoice — the sequence restarts on 1 April (e.g. <strong>1/2026-2027</strong>, then <strong>1/2027-2028</strong>).</span>
-        </label>
+        <p class="muted small settings-field-hint" role="note">
+          <strong>Account period on invoices</strong> — The signatory line prints
+          <strong>For … A/c YYYY–YYYY</strong> using the <strong>India financial year (Apr–Mar)</strong> from each invoice’s
+          <strong>invoice date</strong>, same as the suffix in the invoice number (e.g. <strong>1/2026-2027</strong>). This is computed
+          automatically; it is not a separate setting.
+        </p>
         <label>
           Address
           <textarea id="set-address" rows="3" required maxlength="1000"></textarea>
@@ -635,6 +642,18 @@
         <p class="form-success" id="settings-success" role="status"></p>
         <button type="submit" class="btn btn-primary">Save settings</button>
       </form>
+      <div id="settings-dev-reset-panel" class="card form-block settings-dev-reset-wrap hidden" aria-hidden="true">
+        <h2 class="h2-small">Dev — reset account data</h2>
+        <p class="muted small">
+          Removes all invoices, payments ledger, deleted-invoice archives, quick orders, and invoice counters. Keeps seller settings in Business settings. Customers with any non-zero balance are removed; others stay with ₹0 outstanding.
+        </p>
+        <p class="form-error" role="alert">
+          Enable this panel in <code>js/dev-account-reset.js</code> (<code>DEV_ACCOUNT_RESET_ENABLED = true</code>). Remove before production.
+        </p>
+        <button type="button" class="btn btn-danger" id="btn-dev-account-reset">
+          Reset all transactional data (dev only)
+        </button>
+      </div>
       <div class="card form-block settings-hard-refresh-wrap">
         <h2 class="h2-small">App refresh</h2>
         <p class="settings-app-version-row">
@@ -893,7 +912,7 @@
           </label>
         </div>
         <label id="inv-amount-paid-wrap" class="hidden">
-          Amount received (₹) — may include prior dues; overpayment is stored as advance (credit)
+          Amount received on this invoice (₹) — only when partial; use customer page to record other collections
           <span class="field-required" aria-hidden="true">*</span>
           <input type="number" id="inv-amount-paid-on-invoice" min="0" step="0.01" placeholder="0" />
         </label>
@@ -1139,12 +1158,33 @@
         </h2>
         <p class="muted small" id="customer-payment-for"></p>
         <p class="muted small">Outstanding: <strong id="customer-payment-outstanding"></strong></p>
+        <p class="muted small hidden" id="customer-payment-edit-hint" role="status"></p>
         <form id="form-customer-payment" novalidate>
           <p class="form-error" id="customer-payment-error" role="alert"></p>
           <label>
-            Amount (₹)
+            Amount received (₹)
             <input type="number" id="pay-amount" min="0.01" step="0.01" required />
           </label>
+          <label>
+            Amount received date
+            <input type="date" id="pay-received-date" required />
+          </label>
+          <p class="muted small">Money is applied to the invoices you tick first (list order, oldest first), then any leftover to other open invoices by date.</p>
+          <div class="pay-invoice-field">
+            <div class="pay-invoice-field-label" id="pay-invoice-field-label">
+              Open invoices — select any to pay toward first
+            </div>
+            <div
+              id="pay-invoice-checkboxes"
+              class="pay-invoice-checklist"
+              role="group"
+              aria-labelledby="pay-invoice-field-label"
+              aria-describedby="pay-invoice-help"
+            ></div>
+          </div>
+          <p class="muted small pay-invoice-help" id="pay-invoice-help">
+            Unpaid and partial invoices only. If you tick invoices, the amount must be at least their combined outstanding. Leave all unticked to apply to oldest open invoices only.
+          </p>
           <label>
             Method
             <select id="pay-method" required autocomplete="off">
@@ -1193,8 +1233,11 @@
             <thead>
               <tr>
                 <th>Invoice</th>
+                <th>Document date</th>
                 <th class="num">Amount</th>
-                <th>Saved (date &amp; time)</th>
+                <th>Status</th>
+                <th>Details</th>
+                <th>Last saved</th>
               </tr>
             </thead>
             <tbody id="customer-invoices-modal-tbody"></tbody>
@@ -1277,6 +1320,13 @@
             <input type="date" id="hist-date-to" autocomplete="off" />
           </label>
           <label>
+            Account period (India FY)
+            <select id="hist-account-period" autocomplete="off">
+              <option value="">All account periods</option>
+            </select>
+            <span class="muted small">Apr–Mar; matches invoice number suffix.</span>
+          </label>
+          <label>
             Customer name
             <select id="hist-customer" autocomplete="off">
               <option value="">All customers</option>
@@ -1297,6 +1347,7 @@
               <option value="unpaid">Unpaid</option>
               <option value="partial">Partial</option>
               <option value="paid">Paid</option>
+              <option value="__deleted__">Deleted</option>
             </select>
           </label>
           <label>
@@ -1390,6 +1441,7 @@
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/create" class="text-link">New GST invoice</a>
       </p>
+      <p class="invoice-archived-banner no-print muted small hidden" id="invoice-view-archived-banner" role="status"></p>
       <div class="invoice-actions btn-row wrap no-print">
         <a href="#/history" class="btn btn-secondary">Back to invoice register</a>
         <a class="btn btn-secondary" id="btn-invoice-edit" href="#/create" hidden>Edit invoice</a>

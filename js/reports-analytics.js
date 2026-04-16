@@ -2,7 +2,7 @@
  * Period-scoped billing analytics for the Reports module (filters + time buckets).
  * Pure functions — safe to unit test; dashboard `computeAnalytics` stays unchanged.
  */
-import { round2 } from "./invoices.js";
+import { accountPeriodLabelForInvoice, round2 } from "./invoices.js";
 
 function invoiceDate(d) {
   if (!d) return null;
@@ -152,12 +152,13 @@ function inRange(d, start, end) {
 
 /**
  * @param {Array<object>} invoices
- * @param {{ start: Date, end: Date, customerId?: string, paymentStatus?: string }} filters
+ * @param {{ start: Date, end: Date, customerId?: string, paymentStatus?: string, accountPeriod?: string }} filters
  */
 export function filterInvoicesForReport(invoices, filters) {
   const { start, end } = filters;
   const cust = (filters.customerId || "").trim();
   const pst = (filters.paymentStatus || "").trim().toLowerCase();
+  const ap = (filters.accountPeriod || "").trim();
 
   return (Array.isArray(invoices) ? invoices : []).filter((inv) => {
     const id = inv.customerId || "";
@@ -168,6 +169,7 @@ export function filterInvoicesForReport(invoices, filters) {
       const st = String(inv.paymentStatus || "unpaid").toLowerCase();
       if (st !== pst) return false;
     }
+    if (ap && accountPeriodLabelForInvoice(inv) !== ap) return false;
     return true;
   });
 }

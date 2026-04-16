@@ -3,7 +3,13 @@
  */
 import { loadUserSettings } from "./auth.js";
 import { listCustomers } from "./customers.js";
-import { listInvoicesForUser, formatInvoiceDate, round2 } from "./invoices.js";
+import {
+  accountPeriodLabelForInvoice,
+  enumerateIndiaFYLabels,
+  listInvoicesForUser,
+  formatInvoiceDate,
+  round2,
+} from "./invoices.js";
 import {
   getPeriodBounds,
   filterInvoicesForReport,
@@ -122,6 +128,7 @@ function readFilterCriteria() {
   const toEl = document.getElementById("report-to");
   const custEl = document.getElementById("report-customer");
   const payEl = document.getElementById("report-payment-status");
+  const fyEl = document.getElementById("report-account-period");
   const preset = (presetEl?.value || "today").trim();
   const custom =
     preset === "custom"
@@ -132,6 +139,7 @@ function readFilterCriteria() {
     custom,
     customerId: (custEl?.value || "").trim(),
     paymentStatus: (payEl?.value || "").trim(),
+    accountPeriod: (fyEl?.value || "").trim(),
   };
 }
 
@@ -140,6 +148,17 @@ function syncCustomRangeVisibility() {
   const wrap = document.getElementById("report-custom-dates");
   const isCustom = (presetEl?.value || "") === "custom";
   wrap?.classList.toggle("hidden", !isCustom);
+}
+
+function populateReportAccountPeriodSelect() {
+  const sel = document.getElementById("report-account-period");
+  if (!sel) return;
+  const prev = sel.value;
+  const labels = enumerateIndiaFYLabels(12);
+  sel.innerHTML = `<option value="">All (date range only)</option>${labels
+    .map((l) => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`)
+    .join("")}`;
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
 }
 
 function populateCustomerSelect(customers) {
@@ -167,6 +186,13 @@ function wireFiltersOnce() {
 
   presetEl?.addEventListener("change", () => {
     syncCustomRangeVisibility();
+  });
+
+  document.getElementById("report-account-period")?.addEventListener("change", () => {
+    runRefreshFromCache().catch((ex) => {
+      console.error("[reports fy filter]", ex);
+      showToast(ex?.message || "Could not refresh report.", { type: "error" });
+    });
   });
 
   gen?.addEventListener("click", () => {
@@ -217,7 +243,7 @@ async function renderReportBody(invoices, customers, settings) {
 
   destroyReportCharts();
 
-  const { preset, custom, customerId, paymentStatus } = readFilterCriteria();
+  const { preset, custom, customerId, paymentStatus, accountPeriod } = readFilterCriteria();
   const { start, end, label: periodLabel } = getPeriodBounds(preset, custom);
   const range = { start, end };
 
@@ -226,6 +252,7 @@ async function renderReportBody(invoices, customers, settings) {
     end,
     customerId,
     paymentStatus,
+    accountPeriod,
   });
 
   let a;
@@ -250,6 +277,9 @@ async function renderReportBody(invoices, customers, settings) {
 
   const empty = filtered.length === 0;
   const bucketModeLabelEsc = escapeHtml(String(a.series?.bucketMode ?? ""));
+  const fyHead =
+    accountPeriod &&
+    `<p class="report-head-meta"><span class="report-head-k">Account period (India FY)</span> ${escapeHtml(accountPeriod)}</p>`;
 
   root.innerHTML = `
     <div class="report-card report-head card">
@@ -257,6 +287,7 @@ async function renderReportBody(invoices, customers, settings) {
         <h2 class="report-head-title">${escapeHtml(business)}</h2>
         ${gstin ? `<p class="report-head-meta"><span class="report-head-k">GSTIN</span> ${escapeHtml(gstin)}</p>` : ""}
         <p class="report-head-period"><strong>${escapeHtml(periodLabel)}</strong> · ${escapeHtml(localYmd(start))} → ${escapeHtml(localYmd(end))}</p>
+        ${fyHead || ""}
         <p class="report-head-generated muted small">Generated ${escapeHtml(genStr)}</p>
       </div>
     </div>
@@ -380,6 +411,7 @@ async function renderReportBody(invoices, customers, settings) {
       settings,
       periodLabel,
       range,
+      accountPeriodFilter: accountPeriod || "",
       analytics: a,
       filteredRows: filtered,
       dueOnInvoices,
@@ -401,6 +433,7 @@ async function renderReportBody(invoices, customers, settings) {
       settings,
       periodLabel,
       range,
+      accountPeriodFilter: accountPeriod || "",
       analytics: a,
       filteredRows: filtered,
       dueOnInvoices,
@@ -597,6 +630,7 @@ async function renderReportBody(invoices, customers, settings) {
     settings,
     periodLabel,
     range,
+    accountPeriodFilter: accountPeriod || "",
     analytics: a,
     filteredRows: filtered,
     dueOnInvoices,
@@ -767,6 +801,12 @@ function downloadReportPdf() {
     doc.text(dateRangeLine, margin, y);
     y += 5;
 
+    if (state.accountPeriodFilter) {
+      ensureRoom(5);
+      doc.text(`Account period (India FY): ${pdfAscii(state.accountPeriodFilter)}`, margin, y);
+      y += 5;
+    }
+
     doc.setTextColor(75, 82, 78);
     doc.setFontSize(8.5);
     ensureRoom(4);
@@ -884,6 +924,7 @@ function downloadReportCsv() {
   const rows = lastExportState.filteredRows;
   const headers = [
     "Invoice number",
+    "Account period (India FY)",
     "Date",
     "Customer",
     "Total (INR)",
@@ -900,8 +941,10 @@ function downloadReportCsv() {
     const total = round2(Number(r.total) || 0);
     const paid = round2(Number(r.amountPaidOnInvoice) || 0);
     const due = round2(total - paid);
+    const fyCell = String(r.accountPeriodLabel || accountPeriodLabelForInvoice(r) || "").trim();
     const line = [
       r.invoiceNumber || r.id || "",
+      fyCell,
       formatInvoiceDate(r.date),
       (r.customerName || "").trim(),
       String(total),
@@ -962,6 +1005,7 @@ export async function mountReports(db, uid) {
   cacheSettings = settings;
 
   populateCustomerSelect(customers);
+  populateReportAccountPeriodSelect();
   wireFiltersOnce();
 
   const today = new Date();

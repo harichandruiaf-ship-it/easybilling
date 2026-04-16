@@ -39,6 +39,46 @@ export function defaultAccountPeriodLabelFromDate(d = new Date()) {
   return `${y - 1}-${y}`;
 }
 
+/** Firestore `date` or Date → local Date, or null. */
+export function invoiceDateToJs(dateField) {
+  if (!dateField) return null;
+  if (typeof dateField.toDate === "function") {
+    const d = dateField.toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+  }
+  if (dateField instanceof Date) return Number.isNaN(dateField.getTime()) ? null : dateField;
+  return null;
+}
+
+/**
+ * India FY label (Apr–Mar) for PDF / filters — matches invoice number suffix.
+ * Uses stored `accountPeriod` when present; else invoice date; else parses `invoiceNumber` (e.g. 12/2026-2027).
+ */
+export function accountPeriodLabelForInvoice(inv) {
+  const stored = String(inv?.accountPeriod ?? "").trim();
+  if (/^\d{4}-\d{4}$/.test(stored)) return stored;
+  const d = invoiceDateToJs(inv?.date);
+  if (d) return defaultAccountPeriodLabelFromDate(d);
+  const n = String(inv?.invoiceNumber || "");
+  const m = n.match(/\/(\d{4}-\d{4})$/);
+  if (m) return m[1];
+  return defaultAccountPeriodLabelFromDate();
+}
+
+/** Recent India FY labels for dropdowns (current first). */
+export function enumerateIndiaFYLabels(backCount = 12) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  let startYear = mo >= 3 ? y : y - 1;
+  const out = [];
+  for (let i = 0; i < backCount; i++) {
+    const sy = startYear - i;
+    out.push(`${sy}-${sy + 1}`);
+  }
+  return out;
+}
+
 /**
  * Normalizes "Subtitle / account period" for invoice suffix (e.g. A/c 2026-2027 → 2026-2027).
  */
@@ -95,10 +135,18 @@ function formatInvoiceNumber(seq, accountPeriodLabel) {
  * `previousBalance` is what the customer owed before this invoice (negative means they had advance credit).
  * Partial payments may exceed the invoice total to settle prior dues or create advance (negative balance).
  */
+/** True when amount paid on invoice covers the invoice total (same 1e-6 tolerance as payment allocation). */
+export function isInvoiceFullyPaidByAmounts(inv) {
+  const t = round2(Number(inv?.total) ?? 0);
+  if (!(t > 0)) return false;
+  const paid = round2(Number(inv?.amountPaidOnInvoice) ?? 0);
+  return paid >= t - 1e-6;
+}
+
 export function computeInvoicePaymentAmounts(total, paymentStatus, amountPaidRaw, previousBalance = 0) {
   const t = round2(Number(total) || 0);
   const prev = round2(Number(previousBalance) || 0);
-  const st = paymentStatus || "unpaid";
+  const st = String(paymentStatus || "unpaid").trim().toLowerCase();
   if (st === "paid") return { amountPaidOnInvoice: t, normalizedStatus: "paid" };
   if (st === "partial") {
     const p = round2(Math.max(0, Number(amountPaidRaw) || 0));
@@ -203,6 +251,7 @@ function invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap) 
 /**
  * Saves invoice, allocates number, updates customer balance and writes ledger rows in one transaction.
  * `payload.customerId` must be set when the buyer exists in `customers` (after add/update customer).
+ * Payment status (unpaid / partial / paid) applies only to this invoice; use Record payment on the customer for allocations.
  */
 export async function saveInvoice(db, uid, payload) {
   const invoiceRef = doc(collection(db, "invoices"));
@@ -259,7 +308,10 @@ export async function saveInvoice(db, uid, payload) {
 
     const invData = {
       ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap),
+      accountPeriod,
       date: Timestamp.fromDate(invoiceReferenceDateFromPayload(payload)),
+      /** Actual save time (distinct from `date`, which is the invoice / tax date on the document). */
+      createdAt: serverTimestamp(),
     };
 
     transaction.set(cRef, { nextNumber: next + 1 }, { merge: true });
@@ -479,8 +531,13 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
       currentBalanceSnapshot: currSnap,
     };
 
+    const preservedPeriod =
+      String(oldInv.accountPeriod || "").trim() ||
+      accountPeriodLabelForInvoice({ date: oldInv.date, invoiceNumber: oldInv.invoiceNumber });
+
     const mergeFields = {
       ...invoiceFieldsFromPayload(uid, invoiceId, invoiceNumber, payload, snap),
+      accountPeriod: preservedPeriod,
       updatedAt: serverTimestamp(),
     };
 
@@ -493,6 +550,7 @@ export async function updateInvoice(db, uid, invoiceId, payload) {
 /**
  * Deletes only the invoice document (no customer balance or ledger updates).
  * Use when full delete fails with permission-denied (e.g. rules block moneyTransactions or bad customer userId).
+ * Still writes `deletedInvoices` so the register and read-only archived view behave like a full delete.
  */
 export async function deleteInvoiceDocumentOnly(db, uid, invoiceId) {
   const invRef = doc(db, "invoices", invoiceId);
@@ -501,17 +559,24 @@ export async function deleteInvoiceDocumentOnly(db, uid, invoiceId) {
     if (!invSnap.exists()) {
       throw new Error("Invoice not found.");
     }
-    if (invSnap.data().userId !== uid) {
+    const oldInv = invSnap.data();
+    if (oldInv.userId !== uid) {
       throw new Error("Invalid invoice.");
     }
+    const delRef = doc(collection(db, "deletedInvoices"));
+    const archivePayload = buildDeletedInvoiceArchivePayload(uid, invoiceId, oldInv);
+    transaction.set(delRef, {
+      ...archivePayload,
+      deletedAt: serverTimestamp(),
+    });
     transaction.delete(invRef);
     return { deleted: true, skippedLedger: true };
   });
 }
 
 /**
- * Deletes an invoice: reverses its net effect on the linked customer's outstanding balance (if any),
- * appends an INVOICE_ADJUSTMENT ledger row, then removes the invoice document.
+ * Deletes an invoice: writes an archive row (`deletedInvoices`), reverses customer balance when linked,
+ * appends a money transaction (`INVOICE_DELETED`), then removes the invoice document.
  */
 export async function deleteInvoice(db, uid, invoiceId) {
   const invRef = doc(db, "invoices", invoiceId);
@@ -544,11 +609,24 @@ export async function deleteInvoice(db, uid, invoiceId) {
     const oldNet = round2(oldTotal - oldPaid);
     const invoiceNumber = oldInv.invoiceNumber || "";
 
+    /** @type {import('firebase/firestore').DocumentReference | null} */
+    let custRef = null;
+    /** @type {import('firebase/firestore').DocumentSnapshot | null} */
+    let custSnap = null;
     if (oldCustomerId) {
-      const custRef = doc(db, "customers", oldCustomerId);
-      const custSnap = await transaction.get(custRef);
+      custRef = doc(db, "customers", oldCustomerId);
+      custSnap = await transaction.get(custRef);
+    }
+
+    const delRef = doc(collection(db, "deletedInvoices"));
+    const archivePayload = buildDeletedInvoiceArchivePayload(uid, invoiceId, oldInv);
+    transaction.set(delRef, {
+      ...archivePayload,
+      deletedAt: serverTimestamp(),
+    });
+
+    if (oldCustomerId && custRef && custSnap) {
       if (!custSnap.exists()) {
-        // Customer doc was removed; invoice is orphaned — delete invoice only.
         transaction.delete(invRef);
         return { deleted: true };
       }
@@ -557,26 +635,26 @@ export async function deleteInvoice(db, uid, invoiceId) {
       }
       const b = round2(Number(custSnap.data().outstandingBalance) || 0);
       const rawAfter = round2(b - oldNet);
-      // If books are inconsistent (payments/edits), clamp so delete can finish; ledger uses actual delta.
       const after = rawAfter < 0 ? 0 : rawAfter;
       const receivableDelta = round2(after - b);
       transaction.update(custRef, {
         outstandingBalance: after,
         balanceUpdatedAt: serverTimestamp(),
       });
-      if (receivableDelta !== 0) {
-        const txAdj = doc(collection(db, "moneyTransactions"));
-        transaction.set(txAdj, {
-          userId: uid,
-          customerId: oldCustomerId,
-          type: "INVOICE_ADJUSTMENT",
-          receivableDelta,
-          invoiceId,
-          invoiceNumber,
-          reason: "invoice_deleted",
-          createdAt: serverTimestamp(),
-        });
-      }
+      const txDel = doc(collection(db, "moneyTransactions"));
+      transaction.set(txDel, {
+        userId: uid,
+        customerId: oldCustomerId,
+        type: "INVOICE_DELETED",
+        invoiceId,
+        invoiceNumber,
+        receivableDelta,
+        total: oldTotal,
+        amountPaidOnInvoice: oldPaid,
+        netReceivableRemoved: oldNet,
+        reason: "invoice_deleted",
+        createdAt: serverTimestamp(),
+      });
     }
 
     transaction.delete(invRef);
@@ -594,10 +672,221 @@ export function defaultDashboardInvoiceSinceDate() {
   return d;
 }
 
+/** Extra fields needed to re-render the GST layout from an archive (PDF/screen). */
+function invoiceRenderSnapshotFromInv(inv) {
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  return {
+    items,
+    sellerName: inv.sellerName ?? "",
+    sellerSubtitle: inv.sellerSubtitle ?? "",
+    sellerAddress: inv.sellerAddress ?? "",
+    sellerPhone: inv.sellerPhone ?? "",
+    sellerGstin: inv.sellerGstin ?? "",
+    sellerEmail: inv.sellerEmail ?? "",
+    sellerStateName: inv.sellerStateName ?? "",
+    sellerStateCode: inv.sellerStateCode ?? "",
+    sellerPan: inv.sellerPan ?? "",
+    sellerUdyam: inv.sellerUdyam ?? "",
+    sellerContactExtra: inv.sellerContactExtra ?? "",
+    bankName: inv.bankName ?? "",
+    bankBranch: inv.bankBranch ?? "",
+    accountHolderName: inv.accountHolderName ?? "",
+    bankAccount: inv.bankAccount ?? "",
+    bankIfsc: inv.bankIfsc ?? "",
+    invoiceTerms: inv.invoiceTerms ?? "",
+    jurisdictionFooter: inv.jurisdictionFooter ?? "",
+    cgstPercent: inv.cgstPercent,
+    sgstPercent: inv.sgstPercent,
+    supplyType: inv.supplyType === "inter" ? "inter" : inv.supplyType ? inv.supplyType : "intra",
+    igstPercent: typeof inv.igstPercent === "number" && !Number.isNaN(inv.igstPercent) ? inv.igstPercent : 0,
+    buyerPhone: inv.buyerPhone ?? "",
+    buyerStateName: inv.buyerStateName ?? "",
+    buyerStateCode: inv.buyerStateCode ?? "",
+    buyerContact: inv.buyerContact ?? "",
+    buyerEmail: inv.buyerEmail ?? "",
+    consigneeSameAsBuyer: inv.consigneeSameAsBuyer !== false,
+    referenceDate: inv.referenceDate ?? "",
+    otherReferences: inv.otherReferences ?? "",
+    buyerOrderNo: inv.buyerOrderNo ?? "",
+    buyerOrderDate: inv.buyerOrderDate ?? "",
+    dispatchDocNo: inv.dispatchDocNo ?? "",
+    deliveryNoteDate: inv.deliveryNoteDate ?? "",
+    termsOfDelivery: inv.termsOfDelivery ?? "",
+    vesselFlightNo: inv.vesselFlightNo ?? "",
+    placeReceiptShipper: inv.placeReceiptShipper ?? "",
+    portLoading: inv.portLoading ?? "",
+    portDischarge: inv.portDischarge ?? "",
+    eInvoiceIrn: inv.eInvoiceIrn ?? "",
+    eInvoiceAckNo: inv.eInvoiceAckNo ?? "",
+    eInvoiceAckDate: inv.eInvoiceAckDate ?? "",
+    eInvoiceQrUrl: inv.eInvoiceQrUrl ?? "",
+    previousBalanceSnapshot: inv.previousBalanceSnapshot,
+    currentBalanceSnapshot: inv.currentBalanceSnapshot,
+    previousBalance: inv.previousBalance,
+    currentBalance: inv.currentBalance,
+    customerName: inv.customerName ?? "",
+    consigneeName: inv.consigneeName ?? "",
+    consigneeAddress: inv.consigneeAddress ?? "",
+    consigneePhone: inv.consigneePhone ?? "",
+    consigneeGstin: inv.consigneeGstin ?? "",
+    consigneeStateName: inv.consigneeStateName ?? "",
+    consigneeStateCode: inv.consigneeStateCode ?? "",
+    consigneeEmail: inv.consigneeEmail ?? "",
+    accountPeriod: inv.accountPeriod ?? "",
+    billOfLadingDate: inv.billOfLadingDate ?? "",
+  };
+}
+
+/**
+ * Builds a Firestore payload for `deletedInvoices` (full register snapshot at delete time).
+ * @param {string} uid
+ * @param {string} invoiceId
+ * @param {object} inv raw invoice fields from `invSnap.data()`
+ */
+export function buildDeletedInvoiceArchivePayload(uid, invoiceId, inv) {
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  const hsnBlob = items
+    .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
+    .join(" ");
+  const itemsSummary = items
+    .filter((it) => (it.name || "").trim())
+    .slice(0, 8)
+    .map((it) => `${String(it.name || "").trim()} × ${it.quantity ?? "—"}`)
+    .join("; ")
+    .slice(0, 480);
+  const total = typeof inv.total === "number" && !Number.isNaN(inv.total) ? inv.total : 0;
+  const subtotal = typeof inv.subtotal === "number" && !Number.isNaN(inv.subtotal) ? inv.subtotal : 0;
+  return {
+    userId: uid,
+    originalInvoiceId: invoiceId,
+    invoiceNumber: inv.invoiceNumber || "",
+    customerName: inv.customerName || "",
+    consigneeName: inv.consigneeName || "",
+    total,
+    subtotal,
+    cgst: typeof inv.cgst === "number" && !Number.isNaN(inv.cgst) ? inv.cgst : 0,
+    sgst: typeof inv.sgst === "number" && !Number.isNaN(inv.sgst) ? inv.sgst : 0,
+    igst: typeof inv.igst === "number" && !Number.isNaN(inv.igst) ? inv.igst : 0,
+    amountPaidOnInvoice:
+      typeof inv.amountPaidOnInvoice === "number" && !Number.isNaN(inv.amountPaidOnInvoice)
+        ? inv.amountPaidOnInvoice
+        : 0,
+    // Always persist a Timestamp so register queries/sorts never see a missing `date`
+    date:
+      inv.date != null
+        ? inv.date
+        : Timestamp.fromMillis(Date.now()),
+    buyerGstin: inv.buyerGstin || "",
+    buyerPan: inv.buyerPan || "",
+    placeOfSupply: inv.placeOfSupply || "",
+    buyerAddress: inv.buyerAddress || "",
+    destination: inv.destination || "",
+    dispatchedThrough: inv.dispatchedThrough || "",
+    motorVehicleNo: inv.motorVehicleNo || "",
+    ewayBillNo: inv.ewayBillNo || "",
+    billOfLadingNo: inv.billOfLadingNo || "",
+    sellerGstin: inv.sellerGstin || "",
+    sellerPan: inv.sellerPan || "",
+    referenceNo: inv.referenceNo || "",
+    deliveryNote: inv.deliveryNote || "",
+    paymentTerms: inv.paymentTerms || "",
+    hsnSearchBlob: hsnBlob,
+    itemsSummary,
+    paymentStatus: inv.paymentStatus || "",
+    paymentMethod: inv.paymentMethod || "",
+    customerId: inv.customerId || "",
+    supplyType: inv.supplyType || "",
+    accountPeriod: inv.accountPeriod || "",
+    accountPeriodLabel: accountPeriodLabelForInvoice({
+      date: inv.date,
+      accountPeriod: inv.accountPeriod,
+      invoiceNumber: inv.invoiceNumber,
+    }),
+    ...invoiceRenderSnapshotFromInv(inv),
+  };
+}
+
+/** Shape expected by `renderInvoiceDocument` from a `deletedInvoices` document. */
+export function invoiceViewModelFromDeletedArchive(arch) {
+  if (!arch) return null;
+  const { deletedAt: _del, ...rest } = arch;
+  return {
+    ...rest,
+    id: rest.originalInvoiceId || rest.id,
+  };
+}
+
+export async function getDeletedInvoiceArchiveById(db, uid, archiveId) {
+  const ref = doc(db, "deletedInvoices", archiveId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  if (data.userId !== uid) return null;
+  return { id: snap.id, ...data };
+}
+
+/** Maps a deleted-invoice archive doc to the same list row shape as live invoices + `isDeleted` / `deletedAt`. */
+export function mapDeletedInvoiceDocSnapshot(d) {
+  const x = d.data();
+  const items = Array.isArray(x.items) ? x.items : [];
+  const hsnBlob =
+    (x.hsnSearchBlob && String(x.hsnSearchBlob)) ||
+    items
+      .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
+      .join(" ");
+  return {
+    id: d.id,
+    originalInvoiceId: x.originalInvoiceId || "",
+    isDeleted: true,
+    invoiceNumber: x.invoiceNumber || "",
+    customerName: x.customerName || "",
+    consigneeName: x.consigneeName || "",
+    total: typeof x.total === "number" && !Number.isNaN(x.total) ? x.total : 0,
+    subtotal: typeof x.subtotal === "number" && !Number.isNaN(x.subtotal) ? x.subtotal : 0,
+    cgst: typeof x.cgst === "number" && !Number.isNaN(x.cgst) ? x.cgst : 0,
+    sgst: typeof x.sgst === "number" && !Number.isNaN(x.sgst) ? x.sgst : 0,
+    igst: typeof x.igst === "number" && !Number.isNaN(x.igst) ? x.igst : 0,
+    amountPaidOnInvoice:
+      typeof x.amountPaidOnInvoice === "number" && !Number.isNaN(x.amountPaidOnInvoice)
+        ? x.amountPaidOnInvoice
+        : 0,
+    date: x.date,
+    deletedAt: x.deletedAt,
+    itemsSummary: x.itemsSummary || "",
+    buyerGstin: x.buyerGstin || "",
+    buyerPan: x.buyerPan || "",
+    placeOfSupply: x.placeOfSupply || "",
+    buyerAddress: x.buyerAddress || "",
+    destination: x.destination || "",
+    dispatchedThrough: x.dispatchedThrough || "",
+    motorVehicleNo: x.motorVehicleNo || "",
+    ewayBillNo: x.ewayBillNo || "",
+    billOfLadingNo: x.billOfLadingNo || "",
+    sellerGstin: x.sellerGstin || "",
+    sellerPan: x.sellerPan || "",
+    referenceNo: x.referenceNo || "",
+    deliveryNote: x.deliveryNote || "",
+    paymentTerms: x.paymentTerms || "",
+    hsnSearchBlob: hsnBlob,
+    paymentStatus: x.paymentStatus || "",
+    paymentMethod: x.paymentMethod || "",
+    customerId: x.customerId || "",
+    supplyType: x.supplyType || "",
+    accountPeriod: x.accountPeriod || "",
+    accountPeriodLabel: x.accountPeriodLabel || "",
+  };
+}
+
 /** Maps a Firestore invoice document to the list row shape (history, dashboard, customers). */
 export function mapInvoiceDocSnapshot(d) {
   const x = d.data();
   const items = Array.isArray(x.items) ? x.items : [];
+  const itemsSummary = items
+    .filter((it) => (it.name || "").trim())
+    .slice(0, 8)
+    .map((it) => `${String(it.name || "").trim()} × ${it.quantity ?? "—"}`)
+    .join("; ")
+    .slice(0, 480);
   const hsnBlob = items
     .map((it) => [it.hsn, it.name].filter(Boolean).join(" "))
     .join(" ");
@@ -631,10 +920,19 @@ export function mapInvoiceDocSnapshot(d) {
     deliveryNote: x.deliveryNote || "",
     paymentTerms: x.paymentTerms || "",
     hsnSearchBlob: hsnBlob,
+    itemsSummary,
     paymentStatus: x.paymentStatus || "",
     paymentMethod: x.paymentMethod || "",
     customerId: x.customerId || "",
     supplyType: x.supplyType || "",
+    accountPeriod: x.accountPeriod || "",
+    accountPeriodLabel: accountPeriodLabelForInvoice({
+      date: x.date,
+      accountPeriod: x.accountPeriod,
+      invoiceNumber: x.invoiceNumber,
+    }),
+    createdAt: x.createdAt,
+    updatedAt: x.updatedAt,
   };
 }
 
@@ -647,6 +945,34 @@ export async function listInvoicesForUser(db, uid) {
   );
   const snap = await getDocs(q);
   return snap.docs.map(mapInvoiceDocSnapshot);
+}
+
+function millisFromFirestoreDateField(v) {
+  if (!v) return 0;
+  if (typeof v.toDate === "function") {
+    const d = v.toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+  }
+  return 0;
+}
+
+/** Sort key: invoice date first, then deleted time (newest first). */
+function deletedArchiveSortMillis(row) {
+  const byInv = millisFromFirestoreDateField(row.date);
+  if (byInv) return byInv;
+  return millisFromFirestoreDateField(row.deletedAt);
+}
+
+/**
+ * Archived invoice rows (deleted). Uses only `userId` equality (no composite index).
+ * Sorted client-side so the list works even if indexes are not deployed yet.
+ */
+export async function listDeletedInvoicesForUser(db, uid) {
+  const q = query(collection(db, "deletedInvoices"), where("userId", "==", uid));
+  const snap = await getDocs(q);
+  const rows = snap.docs.map(mapDeletedInvoiceDocSnapshot);
+  rows.sort((a, b) => deletedArchiveSortMillis(b) - deletedArchiveSortMillis(a));
+  return rows;
 }
 
 /**

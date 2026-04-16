@@ -1,5 +1,5 @@
 import { amountToWordsIn } from "./number-to-words-in.js";
-import { formatInvoiceDateDashed, round2, roundOffRupee } from "./invoices.js";
+import { accountPeriodLabelForInvoice, formatInvoiceDateDashed, round2, roundOffRupee } from "./invoices.js";
 
 /**
  * Public path fallback (e.g. tests). Prefer `resolveStampAssetUrl()` which uses `import.meta.url`
@@ -237,15 +237,18 @@ function formatBalanceLine(label, amount) {
 function partyPhoneContactRow(p) {
   const phone = nz(p.phone);
   const contact = nz(p.contactExtra);
-  if (!phone && !contact) return "";
-  if (phone && contact) return kvDiv("Phone", `${phone}, ${contact}`);
-  if (phone) return kvDiv("Phone No", phone);
-  return kvDiv("Contact", contact);
+  let v = "";
+  if (phone && contact) v = `${phone}, ${contact}`;
+  else if (phone) v = phone;
+  else if (contact) v = contact;
+  return kvDiv("Phone", v);
 }
 
+/** Always render label + value row; empty value uses EMPTY_FIELD (not omitting the line). */
 function kvDiv(k, v) {
-  if (!nz(v)) return "";
-  return `<div class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${escapeHtml(v)}</span></div>`;
+  const val = nz(v);
+  const valueInner = val ? escapeHtml(val) : EMPTY_FIELD;
+  return `<div class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${valueInner}</span></div>`;
 }
 
 /** Party block as stacked divs (no nested table). */
@@ -262,9 +265,7 @@ function buildPartyStack(p) {
     ),
     kvDiv("Place of supply", p.placeOfSupply),
     kvDiv("Email", p.email),
-  ]
-    .filter(Boolean)
-    .join("");
+  ].join("");
   return `<div class="inv-party-stack inv-party-table">${parts}</div>`;
 }
 
@@ -724,10 +725,11 @@ function buildBankBlock(inv) {
 }
 
 function buildSignatureRow(inv, options = {}) {
-  const subForSig = inv.sellerSubtitle ? ` ${escapeHtml(inv.sellerSubtitle)}` : "";
+  const fy = accountPeriodLabelForInvoice(inv);
+  const acSuffix = fy ? ` A/c ${escapeHtml(fy)}` : "";
   const includeStamp = options.includeStamp === true;
 
-  const forLine = `<div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${subForSig}</div>`;
+  const forLine = `<div class="inv-sign-for">For <strong>${escapeHtml(inv.sellerName)}</strong>${acSuffix}</div>`;
   const authLine = `<div class="inv-sign-auth">Authorised Signatory</div>`;
   const textBlock = `${forLine}
       ${authLine}`;
@@ -754,7 +756,8 @@ function buildSignatureRow(inv, options = {}) {
 
 function buildFooterNoteOutside(inv) {
   const footerNote = inv.jurisdictionFooter || "Subject to Madurai Jurisdiction";
-  return `<div class="inv-outside-footer inv-a4-bottom-band">
+  /* Sibling of inv-a4-sheet-frame (not inside the <table>) so borders belong only to the table; spacing via CSS. */
+  return `<div class="inv-outside-footer inv-outside-footer--below-table inv-a4-bottom-band">
     <div class="inv-footer-jurisdiction">${escapeHtml(footerNote)}</div>
     <div class="inv-computer-gen">This is a Computer Generated Invoice</div>
   </div>`;
@@ -805,7 +808,7 @@ function buildHeaderOutside(_inv, options = {}) {
 }
 
 export function buildInvoiceHtml(inv, options = {}) {
-  /* Footer lives inside inv-a4-sheet so it stacks after the table frame and moves with the bottom border when the stamp row grows. */
+  /* Footer is outside inv-a4-sheet-frame so it is not part of the bordered table box. */
   return `<div class="inv-a4-page">
   <div class="inv-a4-top-band">${buildHeaderOutside(inv, options)}</div>
   <div class="inv-a4-sheet">${buildMainInvoiceTable(inv, options)}${buildFooterNoteOutside(inv)}</div>

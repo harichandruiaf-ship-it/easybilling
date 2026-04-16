@@ -6,6 +6,8 @@ import {
   defaultDashboardInvoiceSinceDate,
   DASHBOARD_INVOICE_LOOKBACK_MONTHS,
   round2,
+  accountPeriodLabelForInvoice,
+  enumerateIndiaFYLabels,
 } from "./invoices.js";
 import { listCustomers } from "./customers.js";
 import { listOpenQuickOrders, getQuickOrderById, markQuickOrderDone } from "./quick-orders.js";
@@ -20,6 +22,113 @@ let lastAnalytics = null;
 
 /** Latest mount context for quick-order modal / dismiss actions */
 let lastDashboardMount = { db: null, uid: null };
+
+let dashboardInvoicesCache = null;
+let dashboardCustomersCache = null;
+
+function filterDashboardInvoicesByFY(invoices, fy) {
+  if (!fy) return invoices;
+  return invoices.filter((inv) => accountPeriodLabelForInvoice(inv) === fy);
+}
+
+/**
+ * Recomputes KPIs and charts from cached invoice rows (optional India FY filter).
+ * @param {HTMLElement} root
+ */
+function paintDashboardAnalytics(root) {
+  const invoices = dashboardInvoicesCache;
+  const customers = dashboardCustomersCache;
+  if (!invoices || !customers) return;
+
+  destroyCharts();
+
+  const fy = (root.querySelector("#dashboard-account-period")?.value || "").trim();
+  const scoped = filterDashboardInvoicesByFY(invoices, fy);
+  let a;
+  try {
+    a = computeAnalytics(scoped, customers);
+  } catch (ex) {
+    const slot = root.querySelector("#dashboard-charts-slot");
+    if (slot) {
+      slot.innerHTML = `<div class="card dashboard-error"><p class="muted">Could not compute analytics.</p></div>`;
+      slot.classList.add("dashboard-charts--empty");
+    }
+    console.error("[computeAnalytics]", ex);
+    return;
+  }
+  lastAnalytics = a;
+
+  const k = a.kpis;
+  const empty = a.rawInvoiceCount === 0;
+  const winSub = fy
+    ? `India FY ${fy} (Apr–Mar), within last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months loaded`
+    : `Invoices from the last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`;
+  const igstSub = fy
+    ? `Inter-state · India FY ${fy}, last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`
+    : `Inter-state in last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`;
+
+  const kpiStrip = root.querySelector(".dashboard-kpi-strip");
+  if (kpiStrip) {
+    kpiStrip.innerHTML = `
+      ${buildKpiCard("Total billed", `₹ ${k.totalBilled.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, winSub, "")}
+      ${buildKpiCard("Collected", `₹ ${k.totalCollected.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Recorded on invoices", "accent")}
+      ${buildKpiCard("Outstanding", `₹ ${k.outstanding.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "From customer balances", "warn")}
+      ${buildKpiCard("Invoices", String(k.invoiceCount), `Avg ₹ ${k.avgInvoice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "")}
+      ${buildKpiCard("CGST", `₹ ${k.totalCgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, winSub, "")}
+      ${buildKpiCard("SGST", `₹ ${k.totalSgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, winSub, "")}
+      ${buildKpiCard("IGST", `₹ ${(k.totalIgst ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, igstSub, "")}
+    `;
+  }
+
+  const slot = root.querySelector("#dashboard-charts-slot");
+  if (!slot) return;
+  slot.classList.toggle("dashboard-charts--empty", empty);
+  if (empty) {
+    slot.innerHTML = fy
+      ? `<div class="dashboard-empty card"><p><strong>No invoices</strong> for India FY <strong>${escapeHtml(fy)}</strong> in the last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months. Choose <strong>All India FYs</strong> or pick another period.</p><a class="btn btn-primary" href="#/create">New GST invoice</a></div>`
+      : `<div class="dashboard-empty card"><p><strong>No invoices yet.</strong> Create your first GST invoice to see revenue charts, payment mix, and trends.</p><a class="btn btn-primary" href="#/create">New GST invoice</a></div>`;
+    return;
+  }
+
+  slot.innerHTML = `
+      <div class="dashboard-grid">
+        <article class="dashboard-chart-card card" data-dashboard-detail="payment-count" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas"><canvas id="chart-payment-count" height="220"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card" data-dashboard-detail="payment-amount" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas"><canvas id="chart-payment-amount" height="220"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="monthly" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-monthly" height="260"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="daily" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-daily" height="240"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card" data-dashboard-detail="customers" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas"><canvas id="chart-customers" height="280"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card" data-dashboard-detail="tax" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas"><canvas id="chart-tax" height="220"></canvas></div>
+        </article>
+        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="methods" tabindex="0" role="button">
+          <span class="dashboard-chart-hint">Click to expand</span>
+          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-methods" height="220"></canvas></div>
+        </article>
+      </div>`;
+
+  try {
+    renderChartsInRoot(root, a);
+  } catch (ex) {
+    slot.innerHTML = `<p class="muted">Charts could not be drawn. Try refreshing the page.</p>`;
+    console.error("[dashboard charts]", ex);
+  }
+}
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -620,6 +729,13 @@ function closeDashboardDetail() {
  * @param {import('firebase/firestore').Firestore} db
  * @param {string} uid
  */
+/** Clears cached dashboard series (e.g. after dev account reset). */
+export function invalidateDashboardCachesForDevReset() {
+  destroyCharts();
+  dashboardInvoicesCache = null;
+  dashboardCustomersCache = null;
+}
+
 export async function mountDashboard(db, uid) {
   const root = document.getElementById("dashboard-root");
   if (!root) return;
@@ -627,6 +743,8 @@ export async function mountDashboard(db, uid) {
   lastDashboardMount = { db, uid };
 
   destroyCharts();
+  dashboardInvoicesCache = null;
+  dashboardCustomersCache = null;
 
   let invoices;
   let customers;
@@ -647,18 +765,8 @@ export async function mountDashboard(db, uid) {
     return;
   }
 
-  let a;
-  try {
-    a = computeAnalytics(invoices, customers);
-  } catch (ex) {
-    root.innerHTML = `<div class="card dashboard-error"><p class="muted">Could not compute analytics.</p></div>`;
-    console.error("[computeAnalytics]", ex);
-    return;
-  }
-  lastAnalytics = a;
-
-  const k = a.kpis;
-  const empty = a.rawInvoiceCount === 0;
+  dashboardInvoicesCache = invoices;
+  dashboardCustomersCache = customers;
 
   let quickStrip = "";
   try {
@@ -667,6 +775,10 @@ export async function mountDashboard(db, uid) {
   } catch (e) {
     console.warn("[mountDashboard] quick orders", e);
   }
+
+  const fyOpts = `<option value="">All India FYs (in window)</option>${enumerateIndiaFYLabels(12)
+    .map((l) => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`)
+    .join("")}`;
 
   root.innerHTML = `${quickStrip}
     <div class="dashboard-toolbar">
@@ -680,65 +792,28 @@ export async function mountDashboard(db, uid) {
       </div>
     </div>
 
-    <div class="dashboard-kpi-strip" data-dashboard-detail="kpis" role="button" tabindex="0" title="Click for full metrics">
-      ${buildKpiCard("Total billed", `₹ ${k.totalBilled.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Invoices from the last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`, "")}
-      ${buildKpiCard("Collected", `₹ ${k.totalCollected.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "Recorded on invoices", "accent")}
-      ${buildKpiCard("Outstanding", `₹ ${k.outstanding.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "From customer balances", "warn")}
-      ${buildKpiCard("Invoices", String(k.invoiceCount), `Avg ₹ ${k.avgInvoice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, "")}
-      ${buildKpiCard("CGST", `₹ ${k.totalCgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Same ${DASHBOARD_INVOICE_LOOKBACK_MONTHS}-month window as Total billed`, "")}
-      ${buildKpiCard("SGST", `₹ ${k.totalSgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Same ${DASHBOARD_INVOICE_LOOKBACK_MONTHS}-month window as Total billed`, "")}
-      ${buildKpiCard("IGST", `₹ ${(k.totalIgst ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, `Inter-state in last ${DASHBOARD_INVOICE_LOOKBACK_MONTHS} months`, "")}
+    <div class="dashboard-fy-bar card">
+      <label class="dashboard-fy-label">
+        Account period (India FY)
+        <select id="dashboard-account-period" autocomplete="off">${fyOpts}</select>
+      </label>
+      <p class="muted small dashboard-fy-hint">Optional: limit KPIs and charts to one financial year (Apr–Mar). Same rule as the invoice number suffix. Data is still only the last <strong>${DASHBOARD_INVOICE_LOOKBACK_MONTHS}</strong> months of invoices.</p>
     </div>
 
-    <div id="dashboard-charts-slot" class="dashboard-charts ${empty ? "dashboard-charts--empty" : ""}">
-      ${
-        empty
-          ? `<div class="dashboard-empty card"><p><strong>No invoices yet.</strong> Create your first GST invoice to see revenue charts, payment mix, and trends.</p><a class="btn btn-primary" href="#/create">New GST invoice</a></div>`
-          : `
-      <div class="dashboard-grid">
-        <article class="dashboard-chart-card card" data-dashboard-detail="payment-count" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas"><canvas id="chart-payment-count" height="220"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card" data-dashboard-detail="payment-amount" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas"><canvas id="chart-payment-amount" height="220"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="monthly" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-monthly" height="260"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="daily" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-daily" height="240"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card" data-dashboard-detail="customers" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas"><canvas id="chart-customers" height="280"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card" data-dashboard-detail="tax" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas"><canvas id="chart-tax" height="220"></canvas></div>
-        </article>
-        <article class="dashboard-chart-card card dashboard-chart-card--wide" data-dashboard-detail="methods" tabindex="0" role="button">
-          <span class="dashboard-chart-hint">Click to expand</span>
-          <div class="dashboard-chart-canvas dashboard-chart-canvas--wide"><canvas id="chart-methods" height="220"></canvas></div>
-        </article>
-      </div>`
-      }
-    </div>
+    <div class="dashboard-kpi-strip" data-dashboard-detail="kpis" role="button" tabindex="0" title="Click for full metrics"></div>
+
+    <div id="dashboard-charts-slot" class="dashboard-charts dashboard-charts--empty"></div>
   `;
 
-  if (!empty) {
-    try {
-      renderChartsInRoot(root, a);
-    } catch (ex) {
-      const slot = root.querySelector("#dashboard-charts-slot");
-      if (slot) {
-        slot.innerHTML = `<p class="muted">Charts could not be drawn. Try refreshing the page.</p>`;
+  paintDashboardAnalytics(root);
+
+  if (!root.dataset.dashboardFyChangeBound) {
+    root.dataset.dashboardFyChangeBound = "1";
+    root.addEventListener("change", (e) => {
+      if (e.target?.id === "dashboard-account-period") {
+        paintDashboardAnalytics(root);
       }
-      console.error("[dashboard charts]", ex);
-    }
+    });
   }
 
   root.onclick = (e) => {
