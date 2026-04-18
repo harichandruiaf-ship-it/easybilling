@@ -52,18 +52,17 @@ function fakeSnap(data) {
 }
 
 /**
- * If the user ticked specific rows, the payment must cover their combined outstanding
- * (invoices + optional opening / non-invoice balance).
+ * If the user ticked **multiple** distinct rows, the payment must cover their combined outstanding
+ * (invoices + optional opening / non-invoice balance). A single selected row may be partially paid.
  */
 function assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated, openingOwed) {
   const ids = (selectedInvoiceIds || []).map((x) => String(x || "").trim()).filter(Boolean);
   if (!ids.length) return;
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length <= 1) return;
   const openAmt = round2(Math.max(0, Number(openingOwed) || 0));
-  const seen = new Set();
   let sumOwed = 0;
-  for (const id of ids) {
-    if (seen.has(id)) continue;
-    seen.add(id);
+  for (const id of uniqueIds) {
     if (id === OPENING_BALANCE_ROW_ID) {
       sumOwed = round2(sumOwed + openAmt);
       continue;

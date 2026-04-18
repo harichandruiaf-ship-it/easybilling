@@ -1281,7 +1281,7 @@ p.pay-invoice-help {
 }
 
 .customer-invoices-modal-panel {
-  max-width: min(960px, 100%);
+  max-width: min(1100px, 100%);
 }
 
 .customer-invoices-modal-scroll {

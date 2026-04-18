@@ -87,7 +87,7 @@ Configure:
 
 - Enter **amount**, **date received**, method, note.
 - Optionally **select** specific open invoices and/or the **opening / non-invoice** row.
-- Rules: amount cannot exceed total customer outstanding; if you select rows, the amount must cover their combined due (see appendix).
+- Rules: amount cannot exceed total customer outstanding; if you tick **more than one** row, the amount must cover the **combined** due on those rows; a **single** ticked row allows partial payment (see appendix).
 
 **Recent transactions:** List may allow **revoke** or **edit** on eligible standalone payments (revoked entries are excluded from edits).
 

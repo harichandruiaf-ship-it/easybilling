@@ -2371,8 +2371,9 @@ function setupCustomerPaymentModal() {
     const note = document.getElementById("pay-note")?.value?.trim() || "";
     const amountReceivedDateIso = document.getElementById("pay-received-date")?.value?.trim() || todayIsoDate();
     const selectedInvoiceIds = getPaymentSelectedInvoiceIds();
+    const uniqueSelected = [...new Set(selectedInvoiceIds.map((x) => String(x || "").trim()).filter(Boolean))];
 
-    if (selectedInvoiceIds.length > 0) {
+    if (uniqueSelected.length > 1) {
       const sumOwedSelected = getPaymentSelectedInvoicesOwedTotal();
       if (amt < sumOwedSelected - 1e-6) {
         showValidationToast(
@@ -2631,7 +2632,7 @@ function renderCustomerInvoicesModalTable() {
   if (!rows.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 8;
     td.className = "muted";
     td.textContent = "No invoices saved for this customer yet.";
     tr.appendChild(td);
@@ -2662,10 +2663,18 @@ function renderCustomerInvoicesModalTable() {
     }
     const tdDoc = document.createElement("td");
     tdDoc.textContent = formatInvoiceDate(inv.date);
-    const tdAmt = document.createElement("td");
-    tdAmt.className = "num";
-    const amt = Number(inv.total);
-    tdAmt.textContent = `₹ ${Number.isFinite(amt) ? amt.toFixed(2) : "0.00"}`;
+    const invoiceTotal = round2(Number(inv.total) || 0);
+    const amountReceived = round2(Number(inv.amountPaidOnInvoice) || 0);
+    const balanceAmount = round2(invoiceTotal - amountReceived);
+    const tdInvAmt = document.createElement("td");
+    tdInvAmt.className = "num";
+    tdInvAmt.textContent = `₹ ${invoiceTotal.toFixed(2)}`;
+    const tdReceived = document.createElement("td");
+    tdReceived.className = "num";
+    tdReceived.textContent = `₹ ${amountReceived.toFixed(2)}`;
+    const tdBalance = document.createElement("td");
+    tdBalance.className = "num";
+    tdBalance.textContent = `₹ ${balanceAmount.toFixed(2)}`;
     const badge = historyPaymentStatusBadge(inv.paymentStatus, inv);
     const tdStatus = document.createElement("td");
     const st = document.createElement("span");
@@ -2681,7 +2690,9 @@ function renderCustomerInvoicesModalTable() {
     tdWhen.textContent = formatInvoiceLastSavedForCustomerList(inv);
     tr.appendChild(tdNum);
     tr.appendChild(tdDoc);
-    tr.appendChild(tdAmt);
+    tr.appendChild(tdInvAmt);
+    tr.appendChild(tdReceived);
+    tr.appendChild(tdBalance);
     tr.appendChild(tdStatus);
     tr.appendChild(tdDetail);
     tr.appendChild(tdWhen);

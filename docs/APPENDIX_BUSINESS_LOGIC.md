@@ -34,7 +34,7 @@ Order of application for a given payment amount:
 3. **FIFO** for remaining cash: invoices sorted by **invoice date ascending**, then **invoice number** (`compareInvoiceDataForFifo`).
 4. At most **2000** open invoices participate (`MAX_INVOICES_TO_ALLOCATE`).
 
-**Validation when rows are selected:** The payment amount must be **at least** the sum of outstanding on the selected rows (including opening row if selected). Otherwise the app shows an error (amount less than selected total) — see `assertPaymentCoversSelectedInvoices` in `js/payments.js`.
+**Validation when rows are selected:** If **more than one** distinct row is ticked (any mix of opening balance and open invoices), the payment amount must be **at least** the sum of outstanding on **all** of those rows. With **only one** row ticked, a **partial** payment is allowed (e.g. ₹3,000 toward a ₹5,000 invoice). See `assertPaymentCoversSelectedInvoices` in `js/payments.js` and the matching check in `js/app.js`.
 
 **Hard caps:** Payment cannot exceed the customer’s **current** `outstandingBalance`. Allocation must balance internally (`assertAllocationTotalsMatch`).
 
