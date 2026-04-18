@@ -31,6 +31,7 @@ import {
   recordCustomerPayment,
   listMoneyTransactionsForCustomer,
   listOpenInvoicesForPaymentSelect,
+  mergeOpeningRowIntoPaymentSelect,
   revokeCustomerPayment,
   findLatestActiveStandalonePayment,
   todayIsoDate,
@@ -528,6 +529,9 @@ function historyPaymentStatusBadge(status, row) {
   }
   if (s === "unpaid") {
     return { label: "Unpaid", mod: "history-inv-status--unpaid" };
+  }
+  if (s === "opening") {
+    return { label: "Opening", mod: "history-inv-status--opening" };
   }
   return { label: "Unknown", mod: "history-inv-status--unknown" };
 }
@@ -1895,7 +1899,8 @@ function renderPaymentInvoiceChecklist(container, invRows, preselectedIds) {
 
   for (const r of invRows) {
     const row = document.createElement("label");
-    row.className = "pay-inv-picker-row";
+    row.className =
+      r.kind === "opening" ? "pay-inv-picker-row pay-inv-picker-row--opening" : "pay-inv-picker-row";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.value = r.id;
@@ -1904,7 +1909,10 @@ function renderPaymentInvoiceChecklist(container, invRows, preselectedIds) {
     cb.checked = selected.has(r.id);
 
     const owed = round2(Number(r.owed) || 0);
-    const invNum = String(r.invoiceNumber || "").trim() || String(r.id).slice(0, 10);
+    const invNum =
+      r.kind === "opening"
+        ? "Opening / non-invoice outstanding"
+        : String(r.invoiceNumber || "").trim() || String(r.id).slice(0, 10);
     const { label: stLabel, mod: stMod } = historyPaymentStatusBadge(r.paymentStatus);
 
     const numEl = document.createElement("span");
@@ -1948,6 +1956,22 @@ function getPaymentSelectedInvoicesOwedTotal() {
     sum += round2(Number(cb.dataset.owed) || 0);
   });
   return round2(sum);
+}
+
+/** Opening portion of a standalone payment: stored field, or inferred from amount − sum(invoice applications). */
+function standalonePaymentOpeningDisplay(tx) {
+  const stored = round2(Number(tx.openingBalanceApplied) || 0);
+  if (stored > 0.02) return { amount: stored, inferred: false };
+  const amt = round2(Number(tx.amount) || 0);
+  const invSum = Array.isArray(tx.allocatedInvoices)
+    ? tx.allocatedInvoices.reduce(
+        (s, a) => round2(s + round2(Number(a.amountApplied) || 0)),
+        0
+      )
+    : 0;
+  const inferred = round2(amt - invSum);
+  if (inferred > 0.02) return { amount: inferred, inferred: true };
+  return { amount: 0, inferred: false };
 }
 
 function renderPayTxModalPage() {
@@ -2048,55 +2072,85 @@ function renderPayTxModalPage() {
       }
       card.appendChild(meta);
 
-      if (Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length) {
+      const { amount: openingAmt, inferred: openingInferred } = standalonePaymentOpeningDisplay(tx);
+      const hasInvAlloc = Array.isArray(tx.allocatedInvoices) && tx.allocatedInvoices.length > 0;
+
+      if (openingAmt > 0.02 || hasInvAlloc) {
         const allocTitle = document.createElement("div");
         allocTitle.className = "pay-tx-alloc-title";
-        allocTitle.textContent = "Applied to invoices";
+        allocTitle.textContent = "Applied breakdown";
         card.appendChild(allocTitle);
 
         const table = document.createElement("table");
-        table.className = "pay-tx-alloc-table";
+        table.className = "pay-tx-alloc-table pay-tx-alloc-table--breakdown";
         const thead = document.createElement("thead");
         thead.innerHTML =
-          "<tr><th>Invoice</th><th class=\"num\">Applied</th><th>Status</th><th class=\"num\">Paid on invoice</th></tr>";
+          "<tr><th>Applied to</th><th class=\"num\">Amount</th><th>Status</th><th class=\"num\">Detail</th></tr>";
         table.appendChild(thead);
         const tbody = document.createElement("tbody");
-        for (const a of tx.allocatedInvoices) {
-          const tr = document.createElement("tr");
-          const num = a.invoiceNumber || a.invoiceId || "—";
-          const ap = round2(Number(a.amountApplied) || 0);
-          const sb = String(a.statusBefore ?? "—");
-          const sa = String(a.statusAfter ?? "—");
-          const pb = round2(Number(a.paidBefore) || 0);
-          const pa = round2(Number(a.paidAfter) || 0);
-          const tdInv = document.createElement("td");
-          tdInv.textContent = num;
+
+        if (openingAmt > 0.02) {
+          const trO = document.createElement("tr");
+          trO.className = "pay-tx-alloc-row pay-tx-alloc-row--opening";
+          const tdLabel = document.createElement("td");
+          tdLabel.textContent = "Opening / non-invoice outstanding";
           const tdAp = document.createElement("td");
           tdAp.className = "num";
-          tdAp.textContent = `₹${ap.toFixed(2)}`;
+          tdAp.textContent = `₹${openingAmt.toFixed(2)}`;
           const tdSt = document.createElement("td");
           tdSt.className = "pay-tx-status-cell";
-          tdSt.textContent = `${sb} → ${sa}`;
-          const tdPaid = document.createElement("td");
-          tdPaid.className = "num pay-tx-paid-range";
-          tdPaid.textContent = `₹${pb.toFixed(2)} → ₹${pa.toFixed(2)}`;
-          tr.appendChild(tdInv);
-          tr.appendChild(tdAp);
-          tr.appendChild(tdSt);
-          tr.appendChild(tdPaid);
-          tbody.appendChild(tr);
+          tdSt.textContent = "—";
+          const tdNote = document.createElement("td");
+          tdNote.className = "pay-tx-alloc-opening-note";
+          tdNote.textContent = openingInferred
+            ? "Opening balance reduced (inferred from totals)"
+            : "Opening balance reduced";
+          trO.appendChild(tdLabel);
+          trO.appendChild(tdAp);
+          trO.appendChild(tdSt);
+          trO.appendChild(tdNote);
+          tbody.appendChild(trO);
         }
+
+        if (hasInvAlloc) {
+          for (const a of tx.allocatedInvoices) {
+            const tr = document.createElement("tr");
+            const num = a.invoiceNumber || a.invoiceId || "—";
+            const ap = round2(Number(a.amountApplied) || 0);
+            const sb = String(a.statusBefore ?? "—");
+            const sa = String(a.statusAfter ?? "—");
+            const pb = round2(Number(a.paidBefore) || 0);
+            const pa = round2(Number(a.paidAfter) || 0);
+            const tdInv = document.createElement("td");
+            tdInv.textContent = num;
+            const tdAp2 = document.createElement("td");
+            tdAp2.className = "num";
+            tdAp2.textContent = `₹${ap.toFixed(2)}`;
+            const tdSt2 = document.createElement("td");
+            tdSt2.className = "pay-tx-status-cell";
+            tdSt2.textContent = `${sb} → ${sa}`;
+            const tdPaid = document.createElement("td");
+            tdPaid.className = "num pay-tx-paid-range";
+            tdPaid.textContent = `₹${pb.toFixed(2)} → ₹${pa.toFixed(2)}`;
+            tr.appendChild(tdInv);
+            tr.appendChild(tdAp2);
+            tr.appendChild(tdSt2);
+            tr.appendChild(tdPaid);
+            tbody.appendChild(tr);
+          }
+        }
+
         table.appendChild(tbody);
         card.appendChild(table);
       }
 
+      const { amount: openingForRevoke } = standalonePaymentOpeningDisplay(tx);
       if (
         latestPay &&
         tx.id === latestPay.id &&
         tx.ledgerStatus !== "revoked" &&
         paymentCustomerId &&
-        Array.isArray(tx.allocatedInvoices) &&
-        tx.allocatedInvoices.length > 0
+        (hasInvAlloc || openingForRevoke > 0.02)
       ) {
         const actions = document.createElement("div");
         actions.className = "pay-tx-actions";
@@ -2240,6 +2294,7 @@ async function openCustomerPaymentModal(customerId) {
   } catch (_) {
     invRows = [];
   }
+  invRows = mergeOpeningRowIntoPaymentSelect(c, invRows);
 
   const dateInp = document.getElementById("pay-received-date");
   if (dateInp) {
@@ -2247,6 +2302,10 @@ async function openCustomerPaymentModal(customerId) {
   }
 
   renderPaymentInvoiceChecklist(checklistEl, invRows, null);
+  const payTxDetails = document.getElementById("pay-tx-details");
+  if (payTxDetails && invRows.some((r) => r.kind === "opening")) {
+    payTxDetails.open = true;
+  }
 
   const modal = document.getElementById("customer-payment-modal");
   if (modal) {
@@ -2317,7 +2376,7 @@ function setupCustomerPaymentModal() {
       const sumOwedSelected = getPaymentSelectedInvoicesOwedTotal();
       if (amt < sumOwedSelected - 1e-6) {
         showValidationToast(
-          "The amount received is less than the total outstanding on the invoices you ticked. Untick one or more invoices, or enter a higher amount.",
+          "The amount received is less than the total outstanding on the rows you ticked (including opening balance if selected). Untick one or more items, or enter a higher amount.",
           { errEl }
         );
         return;

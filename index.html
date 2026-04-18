@@ -1169,10 +1169,12 @@
             Amount received date
             <input type="date" id="pay-received-date" required />
           </label>
-          <p class="muted small">Money is applied to the invoices you tick first (list order, oldest first), then any leftover to other open invoices by date.</p>
+          <p class="muted small">
+            Money is applied to the rows you tick first (opening balance first in the list when present), then any leftover to other open invoices by date (oldest first).
+          </p>
           <div class="pay-invoice-field">
             <div class="pay-invoice-field-label" id="pay-invoice-field-label">
-              Open invoices — select any to pay toward first
+              Opening balance &amp; open invoices — select any to pay toward first
             </div>
             <div
               id="pay-invoice-checkboxes"
@@ -1183,7 +1185,7 @@
             ></div>
           </div>
           <p class="muted small pay-invoice-help" id="pay-invoice-help">
-            Unpaid and partial invoices only. If you tick invoices, the amount must be at least their combined outstanding. Leave all unticked to apply to oldest open invoices only.
+            Includes unpaid or partial invoices and, when shown, opening / non-invoice outstanding (e.g. amount set when the customer was created). If you tick rows, the amount must be at least their combined outstanding. Leave all unticked to pay opening balance first (if any), then oldest open invoices by date.
           </p>
           <label>
             Method
@@ -1206,7 +1208,7 @@
           </div>
         </form>
         <details class="pay-tx-details" id="pay-tx-details">
-          <summary>Recent transactions</summary>
+          <summary>Recent transactions (payments, invoices, adjustments)</summary>
           <p class="pay-tx-legend" aria-hidden="true">
             <span class="pay-tx-legend-chip pay-tx-legend-chip--payment">Payment in</span>
             <span class="pay-tx-legend-chip pay-tx-legend-chip--invoice">Invoice (receivable)</span>

@@ -654,6 +654,17 @@ body.app-loading-active {
   border-bottom: none;
 }
 
+.pay-tx-alloc-row--opening td {
+  background: rgba(26, 95, 74, 0.07);
+}
+
+.pay-tx-alloc-opening-note {
+  font-size: 0.78rem;
+  color: #374151;
+  text-align: left;
+  line-height: 1.35;
+}
+
 .pay-tx-status-cell {
   color: #1f2937;
 }
@@ -804,6 +815,10 @@ label.pay-inv-picker-row:has(.pay-inv-picker-cb:checked) {
   border-color: rgba(26, 95, 74, 0.45);
   background: linear-gradient(135deg, rgba(26, 95, 74, 0.09) 0%, rgba(26, 95, 74, 0.04) 100%);
   box-shadow: 0 0 0 1px rgba(26, 95, 74, 0.12);
+}
+
+label.pay-inv-picker-row--opening {
+  border-style: dashed;
 }
 
 .pay-inv-picker-cb {
@@ -2160,6 +2175,12 @@ body.login-screen-active #app-main {
   background: #fff6e5;
   color: #7a4e00;
   border: 1px solid #e8c77a;
+}
+
+.history-inv-status--opening {
+  background: #eef4fb;
+  color: #1a3a5c;
+  border: 1px solid #a8c4e8;
 }
 
 .history-inv-status--unpaid {

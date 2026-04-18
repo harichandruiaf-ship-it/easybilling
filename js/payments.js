@@ -16,6 +16,7 @@ import {
   isInvoiceOpen,
   listOpenInvoiceIdsOldestFirst,
   MAX_INVOICES_TO_ALLOCATE,
+  OPENING_BALANCE_ROW_ID,
 } from "./payment-fifo.js";
 
 /** yyyy-mm-dd → Date (local noon, stable in TZ). */
@@ -51,16 +52,22 @@ function fakeSnap(data) {
 }
 
 /**
- * If the user ticked specific invoices, the payment must be at least the sum of those invoices' outstanding balances.
+ * If the user ticked specific rows, the payment must cover their combined outstanding
+ * (invoices + optional opening / non-invoice balance).
  */
-function assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated) {
+function assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated, openingOwed) {
   const ids = (selectedInvoiceIds || []).map((x) => String(x || "").trim()).filter(Boolean);
   if (!ids.length) return;
+  const openAmt = round2(Math.max(0, Number(openingOwed) || 0));
   const seen = new Set();
   let sumOwed = 0;
   for (const id of ids) {
     if (seen.has(id)) continue;
     seen.add(id);
+    if (id === OPENING_BALANCE_ROW_ID) {
+      sumOwed = round2(sumOwed + openAmt);
+      continue;
+    }
     const row = validated.find((r) => r.ref.id === id);
     if (!row || !row.snap.exists()) {
       throw new Error(
@@ -79,15 +86,15 @@ function assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated)
   }
   if (amt < sumOwed - 1e-6) {
     throw new Error(
-      "The amount received is less than the total outstanding on the invoices you selected. Untick one or more invoices, or enter a higher amount."
+      "The amount received is less than the total outstanding on the rows you selected. Untick one or more items, or enter a higher amount."
     );
   }
 }
 
 function assertAllocationTotalsMatch(amt, allocResult) {
-  const { updates, totalApplied, remainingCash } = allocResult;
+  const { updates, totalApplied, remainingCash, openingApplied = 0 } = allocResult;
   const sumTakes = updates.reduce((s, u) => round2(s + u.take), 0);
-  if (Math.abs(round2(sumTakes - totalApplied)) > 0.02) {
+  if (Math.abs(round2(sumTakes + openingApplied - totalApplied)) > 0.02) {
     throw new Error("Payment allocation did not balance; try again or adjust the amount slightly.");
   }
   if (Math.abs(round2(totalApplied + remainingCash - amt)) > 0.02) {
@@ -155,6 +162,44 @@ export async function listOpenInvoicesForPaymentSelect(db, uid, customerId) {
   return rows;
 }
 
+/**
+ * Portion of customer balance not explained by open invoice lines (opening / non-invoice outstanding).
+ */
+export function computeNonInvoiceOutstanding(customerBalance, invoiceRowsWithOwed) {
+  const cur = round2(Number(customerBalance) || 0);
+  const sumInv = (invoiceRowsWithOwed || []).reduce(
+    (s, r) => round2(s + round2(Number(r.owed) || 0)),
+    0
+  );
+  return round2(Math.max(0, round2(cur - sumInv)));
+}
+
+/**
+ * Prepend a synthetic "opening balance" row when that amount is &gt; 0.
+ * @param {object} customer - customer doc (needs outstandingBalance)
+ * @param {Array<{ id: string, owed: number, [key: string]: unknown }>} invoiceRows
+ */
+export function mergeOpeningRowIntoPaymentSelect(customer, invoiceRows) {
+  const openingOwed = computeNonInvoiceOutstanding(customer?.outstandingBalance, invoiceRows);
+  const rows = [...(invoiceRows || [])];
+  if (openingOwed > 1e-6) {
+    rows.unshift({
+      id: OPENING_BALANCE_ROW_ID,
+      kind: "opening",
+      invoiceNumber: "",
+      total: 0,
+      paid: 0,
+      owed: openingOwed,
+      paymentStatus: "opening",
+      label: `Opening / non-invoice outstanding — ₹${openingOwed.toFixed(2)}`,
+      date: null,
+    });
+  }
+  return rows;
+}
+
+export { OPENING_BALANCE_ROW_ID };
+
 async function collectInvoiceIdsForAllocation(db, uid, customerId, selectedInvoiceIds) {
   let openIds;
   try {
@@ -174,6 +219,7 @@ async function collectInvoiceIdsForAllocation(db, uid, customerId, selectedInvoi
   const set = new Set(openIds);
   for (const raw of selectedInvoiceIds || []) {
     const id = String(raw || "").trim();
+    if (id === OPENING_BALANCE_ROW_ID) continue;
     if (id) set.add(id);
   }
   return [...set].slice(0, MAX_INVOICES_TO_ALLOCATE);
@@ -234,11 +280,19 @@ export async function recordCustomerPayment(
       validated.push({ ref: row.ref, snap: row.snap });
     }
 
-    assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated);
+    const sumInvOwed = validated.reduce((s, row) => {
+      const inv = row.snap.data();
+      const total = round2(Number(inv.total) || 0);
+      const paid = round2(Number(inv.amountPaidOnInvoice) || 0);
+      return round2(s + round2(total - paid));
+    }, 0);
+    const openingOwed = round2(Math.max(0, round2(cur - sumInvOwed)));
 
-    const allocResult = allocatePaymentSelectedThenFifo(amt, selectedInvoiceIds || [], validated);
+    assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated, openingOwed);
+
+    const allocResult = allocatePaymentSelectedThenFifo(amt, selectedInvoiceIds || [], validated, openingOwed);
     assertAllocationTotalsMatch(amt, allocResult);
-    const { updates } = allocResult;
+    const { updates, openingApplied = 0 } = allocResult;
     const allocatedInvoices = mapAllocatedInvoiceRows(updates, before);
 
     transaction.set(txRef, {
@@ -256,6 +310,7 @@ export async function recordCustomerPayment(
         .map((x) => String(x || "").trim())
         .filter(Boolean),
       allocatedInvoices,
+      openingBalanceApplied: round2(Number(openingApplied) || 0),
       ledgerStatus: "active",
       createdAt: serverTimestamp(),
     });
@@ -289,7 +344,9 @@ export async function revokeCustomerPayment(db, uid, { customerId, transactionId
     if (t.type !== "PAYMENT_STANDALONE") throw new Error("Only payment entries can be revoked.");
     if (t.customerId !== customerId) throw new Error("Wrong customer.");
     if (t.ledgerStatus === "revoked") throw new Error("Already revoked.");
-    if (!Array.isArray(t.allocatedInvoices) || t.allocatedInvoices.length === 0) {
+    const openApplied = round2(Number(t.openingBalanceApplied) || 0);
+    const hasInv = Array.isArray(t.allocatedInvoices) && t.allocatedInvoices.length > 0;
+    if (openApplied <= 0 && !hasInv) {
       throw new Error("This payment cannot be revoked (missing allocation details).");
     }
 
@@ -355,7 +412,9 @@ export async function editCustomerPayment(
     if (oldTx.type !== "PAYMENT_STANDALONE") throw new Error("Only payment entries can be edited.");
     if (oldTx.customerId !== customerId) throw new Error("Wrong customer.");
     if (oldTx.ledgerStatus === "revoked") throw new Error("Revoked payments cannot be edited.");
-    if (!Array.isArray(oldTx.allocatedInvoices) || oldTx.allocatedInvoices.length === 0) {
+    const oldOpen = round2(Number(oldTx.openingBalanceApplied) || 0);
+    const oldHasInv = Array.isArray(oldTx.allocatedInvoices) && oldTx.allocatedInvoices.length > 0;
+    if (oldOpen <= 0 && !oldHasInv) {
       throw new Error("This payment cannot be edited (missing allocation details).");
     }
 
@@ -407,11 +466,19 @@ export async function editCustomerPayment(
       validated.push({ ref: row.ref, snap: row.snap });
     }
 
-    assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated);
+    const sumInvOwed = validated.reduce((s, row) => {
+      const inv = row.snap.data();
+      const total = round2(Number(inv.total) || 0);
+      const paid = round2(Number(inv.amountPaidOnInvoice) || 0);
+      return round2(s + round2(total - paid));
+    }, 0);
+    const openingOwed = round2(Math.max(0, round2(restoredCust - sumInvOwed)));
 
-    const allocResult = allocatePaymentSelectedThenFifo(amt, selectedInvoiceIds || [], validated);
+    assertPaymentCoversSelectedInvoices(amt, selectedInvoiceIds, validated, openingOwed);
+
+    const allocResult = allocatePaymentSelectedThenFifo(amt, selectedInvoiceIds || [], validated, openingOwed);
     assertAllocationTotalsMatch(amt, allocResult);
-    const { updates } = allocResult;
+    const { updates, openingApplied = 0 } = allocResult;
     const allocatedInvoices = mapAllocatedInvoiceRows(updates, before);
 
     const updateById = new Map(updates.map((u) => [u.invoiceId, u]));
@@ -434,6 +501,7 @@ export async function editCustomerPayment(
         .map((x) => String(x || "").trim())
         .filter(Boolean),
       allocatedInvoices,
+      openingBalanceApplied: round2(Number(openingApplied) || 0),
       lastEditedAt: serverTimestamp(),
     });
 

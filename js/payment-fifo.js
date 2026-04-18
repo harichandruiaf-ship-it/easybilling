@@ -13,6 +13,9 @@ import { round2 } from "./invoice-math.js";
 /** Max open invoices considered for FIFO (after sort). */
 export const MAX_INVOICES_TO_ALLOCATE = 2000;
 
+/** Sentinel id for customer balance not tied to an invoice (opening / non-invoice outstanding). */
+export const OPENING_BALANCE_ROW_ID = "__opening_outstanding__";
+
 export function isInvoiceOpen(data) {
   const total = round2(Number(data.total) || 0);
   if (total <= 0) return false;
@@ -93,13 +96,14 @@ export function fifoAllocatePayment(paymentAmount, rows) {
 }
 
 /**
- * Apply payment: first to `selectedInvoiceIds` (in order, each id once), then any leftover to
- * other open invoices by oldest date / invoice number.
+ * Apply payment: optional opening bucket first (non-invoice outstanding), then selected invoice ids
+ * (in order), then FIFO to other open invoices. If nothing is selected, opening is paid first, then FIFO.
  * `rows`: validated open `{ ref, snap }[]` for this customer.
- * @returns {{ updates: Array<{ ref: import('firebase/firestore').DocumentReference, newPaid: number, newStatus: string, take: number, invoiceNumber: string, invoiceId: string }>, totalApplied: number, remainingCash: number }}
+ * @returns {{ updates: Array<...>, totalApplied: number, remainingCash: number, openingApplied: number }}
  */
-export function allocatePaymentSelectedThenFifo(paymentAmount, selectedInvoiceIds, rows) {
+export function allocatePaymentSelectedThenFifo(paymentAmount, selectedInvoiceIds, rows, openingOwed = 0) {
   const amount = round2(Number(paymentAmount) || 0);
+  let openingRemaining = round2(Math.max(0, Number(openingOwed) || 0));
   /** @type {Map<string, { ref: import('firebase/firestore').DocumentReference, data: object, startPaid: number, workingPaid: number, total: number }>} */
   const byId = new Map();
   for (const { ref, snap } of rows) {
@@ -113,7 +117,17 @@ export function allocatePaymentSelectedThenFifo(paymentAmount, selectedInvoiceId
   }
 
   let remaining = round2(amount);
+  let openingApplied = 0;
   const updates = [];
+
+  function applyOpening() {
+    if (remaining <= 0 || openingRemaining <= 0) return;
+    const take = round2(Math.min(remaining, openingRemaining));
+    if (take <= 1e-9) return;
+    openingApplied = round2(openingApplied + take);
+    openingRemaining = round2(openingRemaining - take);
+    remaining = round2(remaining - take);
+  }
 
   function applyToId(id) {
     if (remaining <= 0) return;
@@ -126,12 +140,20 @@ export function allocatePaymentSelectedThenFifo(paymentAmount, selectedInvoiceId
     remaining = round2(remaining - take);
   }
 
+  const selectedRaw = (selectedInvoiceIds || []).map((x) => String(x || "").trim()).filter(Boolean);
   const seen = new Set();
-  for (const rawId of selectedInvoiceIds || []) {
-    const id = String(rawId || "").trim();
-    if (!id || seen.has(id)) continue;
+  for (const id of selectedRaw) {
+    if (seen.has(id)) continue;
     seen.add(id);
+    if (id === OPENING_BALANCE_ROW_ID) {
+      applyOpening();
+      continue;
+    }
     applyToId(id);
+  }
+
+  if (selectedRaw.length === 0) {
+    applyOpening();
   }
 
   const restIds = [...byId.keys()].filter((id) => {
@@ -164,5 +186,5 @@ export function allocatePaymentSelectedThenFifo(paymentAmount, selectedInvoiceId
   }
 
   const totalApplied = round2(amount - remaining);
-  return { updates, totalApplied, remainingCash: remaining };
+  return { updates, totalApplied, remainingCash: remaining, openingApplied };
 }
