@@ -1014,7 +1014,7 @@
         <span class="page-quick-sep" aria-hidden="true">·</span>
         <a href="#/dashboard" class="text-link">Dashboard</a>
       </p>
-      <div class="page-toolbar customers-toolbar">
+        <div class="page-toolbar customers-toolbar">
         <label class="page-search-label">
           Search customers
           <input
@@ -1027,6 +1027,16 @@
             aria-label="Search customers"
           />
         </label>
+        <label class="customers-sort-label">
+          Sort by
+          <select id="customers-sort-by" autocomplete="off" aria-label="Sort customers by">
+            <option value="name">Name</option>
+            <option value="outstanding">Outstanding balance</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-secondary btn-small" id="customers-sort-dir" title="Reverse sort order">
+          <span id="customers-sort-dir-label">Name A → Z</span>
+        </button>
         <button type="button" class="btn btn-primary" id="btn-customers-add">Add customer</button>
       </div>
       <p class="muted" id="customers-empty">No customers yet. Use <strong>Add customer</strong> above or <a href="#/create" class="text-link">create an invoice</a> and save a new buyer.</p>
@@ -1422,6 +1432,22 @@
           </button>
         </div>
       </form>
+
+      <div class="history-sort-bar card" role="group" aria-label="Sort invoice list">
+        <label class="history-sort-label">
+          Sort by
+          <select id="hist-sort-by" autocomplete="off" aria-label="Sort invoices by">
+            <option value="date">Invoice date</option>
+            <option value="amount">Amount</option>
+            <option value="number">Invoice number</option>
+            <option value="customer">Customer</option>
+            <option value="status">Payment status</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-secondary btn-small" id="hist-sort-dir" title="Reverse sort order">
+          <span id="hist-sort-dir-label">Newest first</span>
+        </button>
+      </div>
 
       <p class="muted small history-bulk-hint">Bulk download uses the same filters as the list below (max 100 invoices per ZIP).</p>
       <p class="muted small" id="history-count" hidden></p>

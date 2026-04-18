@@ -133,6 +133,17 @@ let payTxModalPageIndex = 0;
 const PAY_TX_PAGE_SIZE = 12;
 let historyFiltersWired = false;
 let historyFilterDebounce = null;
+let historySortWired = false;
+/** @type {"date"|"amount"|"number"|"customer"|"status"} */
+let historySortBy = "date";
+/** @type {"asc"|"desc"} */
+let historySortDir = "desc";
+
+let customersSortWired = false;
+/** @type {"name"|"outstanding"} */
+let customersSortBy = "name";
+/** @type {"asc"|"desc"} */
+let customersSortDir = "asc";
 
 function rowInvoiceDate(row) {
   const v = row.date;
@@ -536,6 +547,158 @@ function historyPaymentStatusBadge(status, row) {
   return { label: "Unknown", mod: "history-inv-status--unknown" };
 }
 
+function historyRowDateMillis(row) {
+  const d = rowInvoiceDate(row);
+  return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+}
+
+/** Lower value sorts before higher in ascending status order. */
+function historyStatusSortKey(row) {
+  if (row?.isDeleted) return 0;
+  const s = String(row?.paymentStatus || "").trim().toLowerCase();
+  if (s === "unpaid") return 1;
+  if (s === "partial") return 2;
+  if (s === "paid") return 3;
+  if (s === "opening") return 4;
+  return 5;
+}
+
+function compareHistoryRows(a, b) {
+  const mul = historySortDir === "asc" ? 1 : -1;
+  let cmp = 0;
+  switch (historySortBy) {
+    case "amount":
+      cmp = round2(Number(a.total) || 0) - round2(Number(b.total) || 0);
+      break;
+    case "number": {
+      const na = String(a.invoiceNumber || "").trim();
+      const nb = String(b.invoiceNumber || "").trim();
+      cmp = na.localeCompare(nb, undefined, { numeric: true, sensitivity: "base" });
+      break;
+    }
+    case "customer":
+      cmp = normLower(a.customerName).localeCompare(normLower(b.customerName), undefined, { sensitivity: "base" });
+      break;
+    case "status": {
+      cmp = historyStatusSortKey(a) - historyStatusSortKey(b);
+      if (cmp === 0) {
+        cmp = normLower(a.paymentStatus).localeCompare(normLower(b.paymentStatus), undefined, { sensitivity: "base" });
+      }
+      break;
+    }
+    case "date":
+    default:
+      cmp = historyRowDateMillis(a) - historyRowDateMillis(b);
+      break;
+  }
+  if (cmp !== 0) return mul * cmp;
+  return historyRowDateMillis(b) - historyRowDateMillis(a);
+}
+
+function sortHistoryFilteredRows(rows) {
+  const out = [...rows];
+  out.sort(compareHistoryRows);
+  return out;
+}
+
+function historySortDirLabel() {
+  const asc = historySortDir === "asc";
+  switch (historySortBy) {
+    case "date":
+      return asc ? "Oldest first" : "Newest first";
+    case "amount":
+      return asc ? "Amount low → high" : "Amount high → low";
+    case "number":
+      return asc ? "Invoice no. A → Z" : "Invoice no. Z → A";
+    case "customer":
+      return asc ? "Customer A → Z" : "Customer Z → A";
+    case "status":
+      return asc ? "Unpaid → paid" : "Paid → unpaid";
+    default:
+      return asc ? "Ascending" : "Descending";
+  }
+}
+
+function syncHistorySortUi() {
+  const sel = document.getElementById("hist-sort-by");
+  const label = document.getElementById("hist-sort-dir-label");
+  if (sel) sel.value = historySortBy;
+  if (label) label.textContent = historySortDirLabel();
+}
+
+function wireHistorySortControls() {
+  if (historySortWired) return;
+  historySortWired = true;
+  const sel = document.getElementById("hist-sort-by");
+  const btn = document.getElementById("hist-sort-dir");
+  sel?.addEventListener("change", () => {
+    historySortBy = sel.value || "date";
+    historyPageIndex = 0;
+    syncHistorySortUi();
+    renderHistoryPage();
+  });
+  btn?.addEventListener("click", () => {
+    historySortDir = historySortDir === "asc" ? "desc" : "asc";
+    historyPageIndex = 0;
+    syncHistorySortUi();
+    renderHistoryPage();
+  });
+  syncHistorySortUi();
+}
+
+function compareCustomerRows(a, b) {
+  const mul = customersSortDir === "asc" ? 1 : -1;
+  if (customersSortBy === "outstanding") {
+    const da = round2(Number(a.outstandingBalance) || 0);
+    const db = round2(Number(b.outstandingBalance) || 0);
+    if (da !== db) return mul * (da - db);
+  }
+  const na = normLower(a.name);
+  const nb = normLower(b.name);
+  return mul * na.localeCompare(nb, undefined, { sensitivity: "base" });
+}
+
+function sortCustomerRows(rows) {
+  const out = [...rows];
+  out.sort(compareCustomerRows);
+  return out;
+}
+
+function customersSortDirLabel() {
+  if (customersSortBy === "outstanding") {
+    return customersSortDir === "asc" ? "Outstanding low → high" : "Outstanding high → low";
+  }
+  return customersSortDir === "asc" ? "Name A → Z" : "Name Z → A";
+}
+
+function syncCustomersSortUi() {
+  const sel = document.getElementById("customers-sort-by");
+  const label = document.getElementById("customers-sort-dir-label");
+  if (sel) sel.value = customersSortBy;
+  if (label) label.textContent = customersSortDirLabel();
+}
+
+function wireCustomersSortControls() {
+  if (customersSortWired) return;
+  customersSortWired = true;
+  const sel = document.getElementById("customers-sort-by");
+  const btn = document.getElementById("customers-sort-dir");
+  sel?.addEventListener("change", () => {
+    customersSortBy = sel.value === "outstanding" ? "outstanding" : "name";
+    customersSortDir = customersSortBy === "outstanding" ? "desc" : "asc";
+    customersListPageIndex = 0;
+    syncCustomersSortUi();
+    renderCustomersListFromCache();
+  });
+  btn?.addEventListener("click", () => {
+    customersSortDir = customersSortDir === "asc" ? "desc" : "asc";
+    customersListPageIndex = 0;
+    syncCustomersSortUi();
+    renderCustomersListFromCache();
+  });
+  syncCustomersSortUi();
+}
+
 function renderHistoryPage() {
   const listEl = document.getElementById("history-list");
   const emptyEl = document.getElementById("history-empty");
@@ -546,10 +709,11 @@ function renderHistoryPage() {
   const cacheTotal = historyCache?.length ?? 0;
   if (!historyCache) return;
   const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
-  const pag = paginateSlice(filtered, historyPageIndex, HISTORY_PAGE_SIZE);
+  const sorted = sortHistoryFilteredRows(filtered);
+  const pag = paginateSlice(sorted, historyPageIndex, HISTORY_PAGE_SIZE);
   historyPageIndex = pag.pageIndex;
 
-  if (!filtered.length) {
+  if (!sorted.length) {
     emptyEl.hidden = false;
     emptyEl.innerHTML = cacheTotal
       ? 'No invoices match your filters. Use <strong>Clear all</strong> above or adjust search and filters.'
@@ -567,10 +731,10 @@ function renderHistoryPage() {
   emptyEl.hidden = true;
   if (countEl) {
     countEl.hidden = false;
-    if (filtered.length === cacheTotal) {
+    if (sorted.length === cacheTotal) {
       countEl.textContent = `${cacheTotal} invoice${cacheTotal === 1 ? "" : "s"}`;
     } else {
-      countEl.textContent = `${filtered.length} of ${cacheTotal} invoice${cacheTotal === 1 ? "" : "s"} match filters`;
+      countEl.textContent = `${sorted.length} of ${cacheTotal} invoice${cacheTotal === 1 ? "" : "s"} match filters`;
     }
   }
 
@@ -622,7 +786,7 @@ function renderHistoryPage() {
   mountPaginationBar(pagEl, {
     pageIndex: pag.pageIndex,
     pageSize: HISTORY_PAGE_SIZE,
-    total: filtered.length,
+    total: sorted.length,
     onPageChange: (i) => {
       historyPageIndex = i;
       renderHistoryPage();
@@ -2770,7 +2934,7 @@ function renderCustomersListFromCache() {
     customersListSearchKey = q;
     customersListPageIndex = 0;
   }
-  const rows = all.filter((row) => matchesSearchTokens(customerSearchBlob(row), q));
+  const rows = sortCustomerRows(all.filter((row) => matchesSearchTokens(customerSearchBlob(row), q)));
   if (!rows.length) {
     emptyEl.hidden = false;
     emptyEl.innerHTML =
@@ -2796,7 +2960,7 @@ function renderCustomersListFromCache() {
     li.innerHTML = `<div class="customer-card">
       <strong><a href="#/create?customer=${encodeURIComponent(row.id)}" class="customer-name-link">${escapeHtml(custName)}</a></strong>
       <div class="meta">${phone} · ${addr}${(row.address || "").length > 80 ? "…" : ""}</div>
-      <div class="meta"><span>Outstanding: ₹ ${ob.toFixed(2)}</span></div>
+      <div class="meta customer-outstanding-line"><span class="customer-outstanding-label">Outstanding:</span> <span class="customer-outstanding-value">₹ ${ob.toFixed(2)}</span></div>
       <div class="btn-row customer-card-actions">
         <a class="btn btn-secondary btn-small" href="#/create?customer=${encodeURIComponent(row.id)}">Use in invoice</a>
         <button type="button" class="btn btn-secondary btn-small btn-show-customer-invoices" data-id="${escapeHtml(row.id)}" data-name="${escapeHtml(custName)}">Show invoices</button>
@@ -3157,6 +3321,7 @@ async function renderCustomersPage() {
   customerInvoicesByCustomerIdCache = byCustomer;
   customersPageCache = rows;
   wireCustomersSearch();
+  wireCustomersSortControls();
   renderCustomersListFromCache();
 }
 
@@ -3200,6 +3365,7 @@ async function renderHistory() {
   });
   historyCache = merged;
   wireHistoryFilters();
+  wireHistorySortControls();
   populateHistoryAccountPeriodSelect();
   populateHistoryCustomerOptions(customers, merged);
   emptyEl.innerHTML =
@@ -3535,14 +3701,15 @@ async function downloadHistoryFilteredZip() {
     return;
   }
   const filtered = filterHistoryRows(historyCache, readHistoryCriteria());
-  if (!filtered.length) {
+  const sorted = sortHistoryFilteredRows(filtered);
+  if (!sorted.length) {
     showToast("No invoices match the current filters.", { type: "error" });
     return;
   }
-  const rows = filtered.slice(0, BULK_HISTORY_PDF_MAX);
-  if (filtered.length > BULK_HISTORY_PDF_MAX) {
+  const rows = sorted.slice(0, BULK_HISTORY_PDF_MAX);
+  if (sorted.length > BULK_HISTORY_PDF_MAX) {
     showToast(
-      `Downloading the first ${BULK_HISTORY_PDF_MAX} of ${filtered.length} matching invoices. Narrow filters to include the rest in another ZIP.`,
+      `Downloading the first ${BULK_HISTORY_PDF_MAX} of ${sorted.length} matching invoices. Narrow filters to include the rest in another ZIP.`,
       { type: "info" }
     );
   }
