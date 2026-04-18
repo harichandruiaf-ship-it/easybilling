@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/invoice-math.test.mjs"
+    "test": "node --test tests/invoice-math.test.mjs",
+    "docs:pdf": "node scripts/build-docs-pdf.mjs"
+  },
+  "devDependencies": {
+    "md-to-pdf": "^5.2.5"
   }
 }

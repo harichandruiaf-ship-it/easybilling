@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Generated doc bundle (run: npm run docs:pdf)
+docs/EasyBilling_Documentation.pdf
+
 # Logs & env
 *.log
 npm-debug.log*
