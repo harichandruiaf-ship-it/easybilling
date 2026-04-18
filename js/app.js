@@ -2197,6 +2197,7 @@ function renderPayTxModalPage() {
       const sys = tx.recordedAt || tx.createdAt;
       const sysStr = sys ? formatInvoiceDateTime(sys) : "—";
       const methodLabel = tx.paymentMethod ? paymentMethodLabel(tx.paymentMethod) : "—";
+      const noteLabel = String(tx.note ?? "").trim();
 
       const card = document.createElement("div");
       card.className = "pay-tx-card";
@@ -2225,12 +2226,14 @@ function renderPayTxModalPage() {
         ["Received date", receivedLabel],
         ["Method", methodLabel],
         ["Recorded in app", sysStr],
+        ["Note", noteLabel],
       ];
       for (const [dt, dd] of metaRows) {
         const dEl = document.createElement("dt");
         dEl.textContent = dt;
         const ddEl = document.createElement("dd");
         ddEl.textContent = dd;
+        if (dt === "Note") ddEl.classList.add("pay-tx-meta__note");
         meta.appendChild(dEl);
         meta.appendChild(ddEl);
       }
