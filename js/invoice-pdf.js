@@ -251,8 +251,14 @@ function kvDiv(k, v) {
   return `<div class="inv-party-kv"><span class="inv-party-k">${escapeHtml(k)}</span><span class="inv-party-sep"> : </span><span class="inv-party-v">${valueInner}</span></div>`;
 }
 
-/** Party block as stacked divs (no nested table). */
-function buildPartyStack(p) {
+/**
+ * Party block as stacked divs (no nested table).
+ * @param {{ name?: string, address?: string, phone?: string, contactExtra?: string, gstin?: string, pan?: string, stateName?: string, stateCode?: string, placeOfSupply?: string, email?: string }} p
+ * @param {{ omitEmail?: boolean, omitPlaceOfSupply?: boolean }} [opts]
+ */
+function buildPartyStack(p, opts = {}) {
+  const omitEmail = opts.omitEmail === true;
+  const omitPlaceOfSupply = opts.omitPlaceOfSupply === true;
   const parts = [
     `<div class="inv-party-name"><strong>${escapeHtml(p.name || EMPTY_FIELD)}</strong></div>`,
     `<div class="inv-party-addr">${escapeHtml(p.address || "").replace(/\n/g, "<br />") || EMPTY_FIELD}</div>`,
@@ -263,56 +269,65 @@ function buildPartyStack(p) {
       "State Name",
       [nz(p.stateName), nz(p.stateCode) ? `Code: ${nz(p.stateCode)}` : ""].filter(Boolean).join(", ")
     ),
-    kvDiv("Place of supply", p.placeOfSupply),
-    kvDiv("Email", p.email),
-  ].join("");
-  return `<div class="inv-party-stack inv-party-table">${parts}</div>`;
+  ];
+  if (!omitPlaceOfSupply) parts.push(kvDiv("Place of supply", p.placeOfSupply));
+  if (!omitEmail) parts.push(kvDiv("Email", p.email));
+  return `<div class="inv-party-stack inv-party-table">${parts.join("")}</div>`;
 }
 
 function buildSellerStack(inv) {
-  return buildPartyStack({
-    name: inv.sellerName,
-    address: inv.sellerAddress,
-    phone: inv.sellerPhone,
-    contactExtra: inv.sellerContactExtra,
-    gstin: inv.sellerGstin,
-    pan: inv.sellerPan,
-    stateName: inv.sellerStateName,
-    stateCode: inv.sellerStateCode,
-    placeOfSupply: "",
-    email: inv.sellerEmail,
-  });
+  return buildPartyStack(
+    {
+      name: inv.sellerName,
+      address: inv.sellerAddress,
+      phone: inv.sellerPhone,
+      contactExtra: inv.sellerContactExtra,
+      gstin: inv.sellerGstin,
+      pan: inv.sellerPan,
+      stateName: inv.sellerStateName,
+      stateCode: inv.sellerStateCode,
+      placeOfSupply: "",
+      email: inv.sellerEmail,
+    },
+    { omitPlaceOfSupply: true }
+  );
 }
 
 function buildBillToStack(inv) {
-  return buildPartyStack({
-    name: inv.customerName,
-    address: inv.buyerAddress,
-    phone: inv.buyerPhone,
-    contactExtra: inv.buyerContact,
-    gstin: inv.buyerGstin,
-    pan: inv.buyerPan,
-    stateName: inv.buyerStateName,
-    stateCode: inv.buyerStateCode,
-    placeOfSupply: inv.placeOfSupply,
-    email: inv.buyerEmail,
-  });
+  return buildPartyStack(
+    {
+      name: inv.customerName,
+      address: inv.buyerAddress,
+      phone: inv.buyerPhone,
+      contactExtra: inv.buyerContact,
+      gstin: inv.buyerGstin,
+      pan: inv.buyerPan,
+      stateName: inv.buyerStateName,
+      stateCode: inv.buyerStateCode,
+      placeOfSupply: inv.placeOfSupply,
+      email: inv.buyerEmail,
+    },
+    { omitEmail: true }
+  );
 }
 
 function buildShipToStack(inv) {
   if (inv.consigneeSameAsBuyer !== false) return buildBillToStack(inv);
-  return buildPartyStack({
-    name: inv.consigneeName,
-    address: inv.consigneeAddress,
-    phone: nz(inv.consigneePhone) ? inv.consigneePhone : inv.buyerPhone,
-    contactExtra: inv.buyerContact,
-    gstin: inv.consigneeGstin || inv.buyerGstin,
-    pan: inv.buyerPan,
-    stateName: inv.consigneeStateName || inv.buyerStateName,
-    stateCode: inv.consigneeStateCode || inv.buyerStateCode,
-    placeOfSupply: inv.placeOfSupply,
-    email: nz(inv.consigneeEmail) ? inv.consigneeEmail : inv.buyerEmail,
-  });
+  return buildPartyStack(
+    {
+      name: inv.consigneeName,
+      address: inv.consigneeAddress,
+      phone: nz(inv.consigneePhone) ? inv.consigneePhone : inv.buyerPhone,
+      contactExtra: inv.buyerContact,
+      gstin: inv.consigneeGstin || inv.buyerGstin,
+      pan: inv.buyerPan,
+      stateName: inv.consigneeStateName || inv.buyerStateName,
+      stateCode: inv.consigneeStateCode || inv.buyerStateCode,
+      placeOfSupply: inv.placeOfSupply,
+      email: nz(inv.consigneeEmail) ? inv.consigneeEmail : inv.buyerEmail,
+    },
+    { omitEmail: true }
+  );
 }
 
 function metaInner(label, value) {
