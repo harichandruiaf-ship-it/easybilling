@@ -9,6 +9,9 @@ import {
   sendPasswordResetToEmail,
   loadUserSettings,
   saveUserSettings,
+  userSupportsPasswordChange,
+  updateUserFullName,
+  changePasswordWithReauth,
 } from "./auth.js";
 import {
   saveInvoice,
@@ -144,6 +147,9 @@ let customersSortWired = false;
 let customersSortBy = "name";
 /** @type {"asc"|"desc"} */
 let customersSortDir = "asc";
+
+/** Document click handler (capture) to close nav profile menu when clicking outside. */
+let navProfileOutsideClose = null;
 
 function rowInvoiceDate(row) {
   const v = row.date;
@@ -4152,8 +4158,146 @@ async function renderDeletedInvoicePage(archiveId) {
   };
 }
 
-function setupLogout() {
-  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+function closeNavProfileDropdown() {
+  const dd = document.getElementById("nav-profile-dropdown");
+  const btn = document.getElementById("btn-nav-profile");
+  if (dd) dd.classList.add("hidden");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  if (navProfileOutsideClose) {
+    document.removeEventListener("click", navProfileOutsideClose, true);
+    navProfileOutsideClose = null;
+  }
+}
+
+function openNavProfileDropdown() {
+  const dd = document.getElementById("nav-profile-dropdown");
+  const btn = document.getElementById("btn-nav-profile");
+  const wrap = document.getElementById("nav-profile-wrap");
+  if (!dd || !btn || !wrap) return;
+  closeNavProfileDropdown();
+  dd.classList.remove("hidden");
+  btn.setAttribute("aria-expanded", "true");
+  navProfileOutsideClose = (ev) => {
+    if (wrap.contains(ev.target)) return;
+    closeNavProfileDropdown();
+  };
+  setTimeout(() => document.addEventListener("click", navProfileOutsideClose, true), 0);
+}
+
+function toggleNavProfileDropdown() {
+  const dd = document.getElementById("nav-profile-dropdown");
+  if (!dd) return;
+  if (dd.classList.contains("hidden")) openNavProfileDropdown();
+  else closeNavProfileDropdown();
+}
+
+function setProfileModalError(msg) {
+  const el = document.getElementById("profile-modal-error");
+  if (el) el.textContent = msg || "";
+}
+
+function profilePasswordChangeExpanded() {
+  const section = document.getElementById("profile-password-change");
+  return !!(section && !section.classList.contains("hidden"));
+}
+
+function setProfilePasswordChangeExpanded(expanded) {
+  const section = document.getElementById("profile-password-change");
+  const btn = document.getElementById("btn-profile-change-password");
+  if (!section || !btn) return;
+  if (expanded) {
+    section.classList.remove("hidden");
+    btn.textContent = "Cancel password change";
+    btn.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => document.getElementById("profile-current-password")?.focus());
+  } else {
+    section.classList.add("hidden");
+    btn.textContent = "Change password";
+    btn.setAttribute("aria-expanded", "false");
+    const cur = document.getElementById("profile-current-password");
+    const neu = document.getElementById("profile-new-password");
+    const conf = document.getElementById("profile-confirm-password");
+    if (cur) cur.value = "";
+    if (neu) neu.value = "";
+    if (conf) conf.value = "";
+  }
+}
+
+function collapseProfilePasswordChange() {
+  if (!userSupportsPasswordChange()) return;
+  setProfilePasswordChangeExpanded(false);
+}
+
+function closeProfileModal() {
+  const modal = document.getElementById("profile-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  setProfileModalError("");
+  collapseProfilePasswordChange();
+}
+
+async function fillProfileModal() {
+  if (!currentUser) return;
+  const emailEl = document.getElementById("profile-email");
+  const nameEl = document.getElementById("profile-name");
+  const pwSection = document.getElementById("profile-password-change");
+  const revealWrap = document.getElementById("profile-password-reveal-wrap");
+  const oauthHint = document.getElementById("profile-password-hint-oauth");
+  const changeBtn = document.getElementById("btn-profile-change-password");
+  if (emailEl) emailEl.value = currentUser.email || "";
+  let settings = {};
+  try {
+    settings = await loadUserSettings(currentUser.uid);
+  } catch (_) {
+    /* ignore */
+  }
+  const name =
+    String(settings.fullName || "")
+      .trim() ||
+    String(currentUser.displayName || "").trim();
+  if (nameEl) nameEl.value = name;
+  pwSection?.classList.add("hidden");
+  if (changeBtn) {
+    changeBtn.textContent = "Change password";
+    changeBtn.setAttribute("aria-expanded", "false");
+  }
+  if (userSupportsPasswordChange()) {
+    revealWrap?.classList.remove("hidden");
+    oauthHint?.classList.add("hidden");
+  } else {
+    revealWrap?.classList.add("hidden");
+    oauthHint?.classList.remove("hidden");
+  }
+  const cur = document.getElementById("profile-current-password");
+  const neu = document.getElementById("profile-new-password");
+  const conf = document.getElementById("profile-confirm-password");
+  if (cur) cur.value = "";
+  if (neu) neu.value = "";
+  if (conf) conf.value = "";
+}
+
+async function openProfileModal() {
+  closeNavProfileDropdown();
+  const modal = document.getElementById("profile-modal");
+  if (!modal || !currentUser) return;
+  setProfileModalError("");
+  await fillProfileModal();
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => document.getElementById("profile-name")?.focus());
+}
+
+function setupAccountMenu() {
+  document.getElementById("btn-nav-profile")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleNavProfileDropdown();
+  });
+  document.getElementById("nav-profile-open")?.addEventListener("click", () => {
+    void openProfileModal();
+  });
+  document.getElementById("btn-nav-signout")?.addEventListener("click", async () => {
+    closeNavProfileDropdown();
     try {
       await withLoading(() => signOutUser(), "Signing out…");
       showToast("Signed out successfully.");
@@ -4161,6 +4305,67 @@ function setupLogout() {
     } catch (ex) {
       showToast(formatAppError(ex, "Could not sign out."), { type: "error" });
     }
+  });
+  document.getElementById("profile-modal-backdrop")?.addEventListener("click", () => closeProfileModal());
+  document.getElementById("btn-profile-modal-close")?.addEventListener("click", () => closeProfileModal());
+  document.getElementById("btn-profile-save-name")?.addEventListener("click", async () => {
+    const errEl = document.getElementById("profile-modal-error");
+    if (!currentUser) return;
+    const nameEl = document.getElementById("profile-name");
+    const name = (nameEl?.value || "").trim();
+    if (!name) {
+      setProfileModalError("Enter a name.");
+      return;
+    }
+    setProfileModalError("");
+    try {
+      await withLoading(() => updateUserFullName(currentUser.uid, name), "Saving…");
+      showToast("Name saved.");
+    } catch (ex) {
+      setProfileModalError(formatAppError(ex, "Could not save name."));
+    }
+  });
+  document.getElementById("btn-profile-change-password")?.addEventListener("click", () => {
+    if (!userSupportsPasswordChange()) return;
+    if (profilePasswordChangeExpanded()) {
+      setProfilePasswordChangeExpanded(false);
+    } else {
+      setProfilePasswordChangeExpanded(true);
+    }
+  });
+  document.getElementById("btn-profile-save-password")?.addEventListener("click", async () => {
+    setProfileModalError("");
+    const cur = document.getElementById("profile-current-password")?.value || "";
+    const neu = document.getElementById("profile-new-password")?.value || "";
+    const conf = document.getElementById("profile-confirm-password")?.value || "";
+    if (!cur) {
+      setProfileModalError("Enter your current password.");
+      return;
+    }
+    if (neu.length < 6) {
+      setProfileModalError("New password must be at least 6 characters.");
+      return;
+    }
+    if (neu !== conf) {
+      setProfileModalError("New password and confirmation do not match.");
+      return;
+    }
+    try {
+      await withLoading(() => changePasswordWithReauth(cur, neu), "Updating password…");
+      showToast("Password updated.");
+      closeProfileModal();
+    } catch (ex) {
+      setProfileModalError(formatAppError(ex, "Could not update password. Check your current password."));
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = document.getElementById("profile-modal");
+    if (modal && !modal.classList.contains("hidden")) {
+      closeProfileModal();
+      return;
+    }
+    closeNavProfileDropdown();
   });
 }
 
@@ -4207,7 +4412,7 @@ setupInvoicePreviewModal();
 setupCustomerEditModal();
 setupCustomerPaymentModal();
 setupCustomerInvoicesModal();
-setupLogout();
+setupAccountMenu();
 setupHistoryBulkDownload();
 setupQuickOrdersPage();
 registerServiceWorker();

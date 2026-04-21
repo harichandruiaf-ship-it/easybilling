@@ -75,7 +75,8 @@ body.app-loading-active {
 }
 
 .nav-auth .nav-link,
-.nav-auth .btn-nav-logout {
+.nav-auth .btn-nav-logout,
+.nav-auth .btn-nav-profile {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -85,7 +86,8 @@ body.app-loading-active {
 }
 
 .nav-auth .nav-link:hover,
-.nav-auth .btn-nav-logout:hover {
+.nav-auth .btn-nav-logout:hover,
+.nav-auth .btn-nav-profile:hover {
   text-decoration: underline;
 }
 
@@ -115,6 +117,106 @@ body.app-loading-active {
 .nav-auth .btn-nav-logout:hover {
   color: #931b1b;
   background: rgba(180, 35, 24, 0.1);
+}
+
+.nav-profile-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.nav-auth .btn-nav-profile {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.25rem 0.35rem;
+  margin: 0;
+  border-radius: 999px;
+  color: var(--primary);
+}
+
+.nav-auth .btn-nav-profile:hover {
+  text-decoration: none;
+  background: rgba(26, 95, 74, 0.1);
+  color: var(--primary-hover);
+}
+
+.nav-icon--profile {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.nav-profile-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  min-width: 11rem;
+  padding: 0.35rem 0;
+  margin: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10020;
+}
+
+.nav-profile-dropdown.hidden {
+  display: none !important;
+}
+
+.nav-profile-dropdown-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 1rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.nav-profile-dropdown-item:hover {
+  background: var(--bg);
+}
+
+.nav-profile-dropdown-item--danger {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.nav-profile-dropdown-item--danger:hover {
+  background: rgba(180, 35, 24, 0.08);
+  color: #931b1b;
+}
+
+.profile-modal-panel {
+  max-width: min(440px, 100%);
+}
+
+.profile-password-reveal-wrap {
+  margin: 0.35rem 0 0.75rem;
+}
+
+.profile-section-title {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.profile-password-change label {
+  margin-top: 0.5rem;
+}
+
+#profile-email[readonly],
+#profile-password-mask[readonly] {
+  background: var(--bg);
+  color: var(--muted);
+  cursor: default;
 }
 
 /* Page headings (main views) */

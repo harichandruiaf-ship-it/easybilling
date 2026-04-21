@@ -5,6 +5,10 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  updateProfile,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
 } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
@@ -42,6 +46,40 @@ export function signOutUser() {
 
 export async function sendPasswordResetToEmail(email) {
   await sendPasswordResetEmail(auth, email);
+}
+
+/** True if the signed-in user can change password via re-auth (email/password provider). */
+export function userSupportsPasswordChange() {
+  const u = auth?.currentUser;
+  if (!u || !u.email) return false;
+  return u.providerData.some((p) => p.providerId === "password");
+}
+
+/**
+ * Updates Firebase Auth display name and `users/{uid}.fullName` (merge).
+ * @param {string} uid
+ * @param {string} fullName
+ */
+export async function updateUserFullName(uid, fullName) {
+  const name = String(fullName || "").trim();
+  const ref = doc(db, "users", uid);
+  await setDoc(ref, { fullName: name, updatedAt: serverTimestamp() }, { merge: true });
+  const u = auth.currentUser;
+  if (u && u.uid === uid) {
+    await updateProfile(u, { displayName: name });
+  }
+}
+
+/**
+ * @param {string} currentPassword
+ * @param {string} newPassword
+ */
+export async function changePasswordWithReauth(currentPassword, newPassword) {
+  const u = auth.currentUser;
+  if (!u?.email) throw new Error("Not signed in.");
+  const cred = EmailAuthProvider.credential(u.email, currentPassword);
+  await reauthenticateWithCredential(u, cred);
+  await updatePassword(u, newPassword);
 }
 
 export function onUserChanged(cb) {
